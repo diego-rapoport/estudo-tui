@@ -9,6 +9,8 @@ Duas peças que trabalham juntas:
   revisões, exercícios, pendências e o que estudar a seguir. Ele só lê; quem escreve é a
   skill (ou você, pelo editor).
 
+![Aba Trilha do estudando: módulos do mapa com nível e situação da revisão de cada conceito, painel lateral com o resumo do dia e o progresso, e o quadro "O que estudar agora"](docs/screenshots/trilha.png)
+
 ## Instalar
 
 Requer Rust (cargo) e, para a skill, Python 3 e o Claude Code.
