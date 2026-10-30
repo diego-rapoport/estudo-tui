@@ -97,3 +97,7 @@ Em ordem de prioridade:
 O formato é o descrito em `~/.claude/skills/professor/references/arvore-conhecimento.md`.
 As regras de leitura (frontmatter, pastas ignoradas, "base frágil") são as mesmas do
 `arvore.py` da skill.
+
+## Licença
+
+MIT. Veja [LICENSE](LICENSE).
