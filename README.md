@@ -1,28 +1,63 @@
 # estudando
 
-Painel no terminal (ratatui) para a árvore de conhecimento da skill **professor**:
-progresso por conceito, revisões espaçadas, pendências e o que estudar a seguir.
+Duas peças que trabalham juntas:
 
-Só lê as notas. Quem escreve é a skill professor (ou você, pelo editor).
+- **`skill/professor/`**: skill do Claude Code que faz papel de professor particular. Ela
+  diagnostica o que você sabe, monta uma trilha, escreve notas em Markdown (compatíveis com
+  o Obsidian), passa exercícios com repetição espaçada e dispara pesquisas.
+- **`estudando`**: painel no terminal (Rust + ratatui) que lê essas notas e mostra progresso,
+  revisões, exercícios, pendências e o que estudar a seguir. Ele só lê; quem escreve é a
+  skill (ou você, pelo editor).
 
 ## Instalar
 
+Requer Rust (cargo) e, para a skill, Python 3 e o Claude Code.
+
 ```sh
-cargo install --path . --locked -j4
+./instalar.sh              # TUI + skill + pergunta onde guardar os estudos
+./instalar.sh --sem-skill  # só a TUI
 ```
 
-O binário vai para `~/.cargo/bin/estudando`. Depois de mudar o código, rode o mesmo comando
-de novo.
+O script:
+
+1. roda `cargo install --path . --locked` (binário em `~/.cargo/bin/estudando`);
+2. cria o link `~/.claude/skills/professor -> <repo>/skill/professor`, para que editar a
+   skill no repositório já valha no Claude Code;
+3. pergunta onde guardar os estudos, se isso ainda não estiver configurado.
+
+Depois de mudar o código, rode `./instalar.sh` de novo.
+
+## Onde ficam os estudos
+
+A skill e a TUI usam a mesma pasta base, resolvida nesta ordem:
+
+1. `$ESTUDANDO_DIR`, se estiver definida;
+2. `pasta = "..."` em `~/.config/estudando/config.toml` (respeita `$XDG_CONFIG_HOME`).
+
+Se nenhuma das duas existir, nada é criado às cegas. A skill pergunta onde guardar na
+primeira sessão e grava a resposta. A TUI mostra como configurar. A sugestão é
+`<pasta de documentos do sistema>/Aprendizado`, que vira `~/Documentos/Aprendizado` ou
+`~/Documents/Aprendizado` conforme o idioma.
+
+```sh
+estudando --pasta                         # qual pasta está em uso e de onde veio
+estudando --definir-pasta ~/Estudos       # grava (e cria) a pasta
+python3 skill/professor/scripts/arvore.py base [--definir CAMINHO]   # o mesmo, pelo lado da skill
+```
+
+Dentro da pasta base fica uma pasta por assunto (`calculo/`, com `_mapa.md`, `_perfil.md`,
+`conceitos/`, `exercicios/`, `pesquisa/`). Ela pode ser aberta como vault do Obsidian.
 
 ## Usar
 
 ```sh
 estudando            # abre o primeiro assunto
 estudando calculo    # abre direto num assunto (nome da pasta ou prefixo)
-estudando --dir ~/outra/pasta
+estudando --dir ~/outra/pasta   # outra pasta só nesta execução
 ```
 
-A pasta raiz padrão é `~/Documentos/Aprendizado`. Para mudar, use `$ESTUDANDO_DIR` ou `--dir`.
+Para começar um assunto, peça ao Claude Code: "quero aprender cálculo". A skill professor
+assume a partir daí.
 
 | Aba | O que mostra |
 |---|---|

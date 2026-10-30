@@ -1,0 +1,11 @@
+schema_version: "1.1"
+name: analisa-arvore-e-exercicios
+expected_outcome: |
+  O professor analisa a árvore (as notas em Aprendizado/calculo), encontra os equívocos
+  escritos nas notas (limite = substituir / 0/0 = não existe; derivada = a reta tangente),
+  a lacuna de funcao-composta que bloqueia a regra da cadeia, a nota de continuidade vazia,
+  a integral órfã, e as revisões vencidas (limite, continuidade, regra-da-cadeia). Cria um
+  arquivo de exercícios com gabarito escondido, cobrindo os conceitos vencidos, com tipos
+  variados, e não mostra o gabarito no chat.
+context:
+  scaffold_script: place-files.sh

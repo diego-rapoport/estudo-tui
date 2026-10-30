@@ -296,10 +296,14 @@ fn nome(p: &Path) -> String {
 
 fn coletar_md(dir: &Path, ignorar: &[&str], out: &mut Vec<PathBuf>) {
     let Ok(entradas) = fs::read_dir(dir) else { return };
-    let mut caminhos: Vec<PathBuf> = entradas.flatten().map(|e| e.path()).collect();
+    // Links para pastas são ignorados: evitam ciclos e leitura fora da pasta de estudos.
+    let mut caminhos: Vec<(PathBuf, bool)> = entradas
+        .flatten()
+        .filter_map(|e| e.file_type().ok().map(|t| (e.path(), t.is_dir())))
+        .collect();
     caminhos.sort();
-    for p in caminhos {
-        if p.is_dir() {
+    for (p, e_pasta) in caminhos {
+        if e_pasta {
             if !ignorar.contains(&nome(&p).as_str()) {
                 coletar_md(&p, ignorar, out);
             }

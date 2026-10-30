@@ -1,0 +1,7 @@
+schema_version: "1.1"
+name: novo-assunto-calculo
+expected_outcome: |
+  O professor começa pela configuração (objetivo, tempo, o que já estudou) e oferece níveis
+  de profundidade concretos para cálculo, explica que vai haver um diagnóstico curto e faz
+  UMA primeira pergunta aberta sobre um pré-requisito (não sobre cálculo em si). Não dá aula
+  nem despeja uma trilha completa ou referências antes do diagnóstico.

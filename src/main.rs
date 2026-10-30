@@ -2,6 +2,7 @@
 
 mod analise;
 mod app;
+mod config;
 mod model;
 mod ui;
 
@@ -16,11 +17,18 @@ const AJUDA: &str = "\
 estudando: progresso, revisões e próximo passo dos seus estudos
 
 Uso: estudando [ASSUNTO] [--dir PASTA]
+     estudando --pasta
+     estudando --definir-pasta CAMINHO
 
-  ASSUNTO       abre direto nesse assunto (nome da pasta, ex.: calculo)
-  -d, --dir     pasta raiz dos estudos (padrão: $ESTUDANDO_DIR ou ~/Documentos/Aprendizado)
-  -h, --help    mostra esta ajuda
-  -V, --version mostra a versão
+  ASSUNTO                abre direto nesse assunto (nome da pasta, ex.: calculo)
+  -d, --dir PASTA        usa esta pasta só nesta execução
+      --pasta            mostra qual pasta de estudos está em uso e de onde ela veio
+      --definir-pasta C  grava C como pasta de estudos (cria se não existir)
+  -h, --help             mostra esta ajuda
+  -V, --version          mostra a versão
+
+A pasta de estudos é compartilhada com a skill professor. Ela vem de $ESTUDANDO_DIR ou,
+se a variável não existir, de `pasta = \"...\"` em ~/.config/estudando/config.toml.
 
 Dentro da TUI, aperte ? para ver os atalhos.
 ";
@@ -29,8 +37,29 @@ fn main() -> ExitCode {
     let mut args = env::args().skip(1);
     let mut dir: Option<PathBuf> = None;
     let mut assunto: Option<String> = None;
+    let mut mostrar_pasta = false;
     while let Some(a) = args.next() {
         match a.as_str() {
+            "--pasta" => mostrar_pasta = true,
+            "--definir-pasta" => {
+                let Some(caminho) = args.next() else {
+                    eprintln!("--definir-pasta precisa de um caminho (sugestão: {})", config::sugestao().display());
+                    return ExitCode::from(2);
+                };
+                return match config::definir(&caminho) {
+                    Ok((pasta, cfg)) => {
+                        println!("Pasta de estudos: {}\nGravado em {}", pasta.display(), cfg.display());
+                        if env::var("ESTUDANDO_DIR").is_ok_and(|v| !v.trim().is_empty()) {
+                            println!("Atenção: $ESTUDANDO_DIR está definida e tem prioridade sobre o config.");
+                        }
+                        ExitCode::SUCCESS
+                    }
+                    Err(e) => {
+                        eprintln!("não consegui definir a pasta {caminho}: {e}");
+                        ExitCode::FAILURE
+                    }
+                };
+            }
             "-h" | "--help" => {
                 print!("{AJUDA}");
                 return ExitCode::SUCCESS;
@@ -54,16 +83,28 @@ fn main() -> ExitCode {
         }
     }
 
-    let raiz = dir
-        .or_else(|| env::var_os("ESTUDANDO_DIR").map(PathBuf::from))
-        .unwrap_or_else(|| {
-            env::var_os("HOME").map(PathBuf::from).unwrap_or_default().join("Documentos/Aprendizado")
-        });
+    let Some((raiz, origem)) = config::resolver(dir) else {
+        eprintln!(
+            "Pasta de estudos não configurada.\n\n\
+             Escolha onde guardar e rode:\n  estudando --definir-pasta {}\n\n\
+             A skill professor também pergunta e grava isso na primeira vez que você estudar.",
+            config::sugestao().display()
+        );
+        return ExitCode::FAILURE;
+    };
+    if mostrar_pasta {
+        println!("{}", raiz.display());
+        eprintln!("(de {}{})", origem.descricao(), if raiz.is_dir() { "" } else { "; a pasta ainda não existe" });
+        return ExitCode::SUCCESS;
+    }
     let assuntos = carregar_assuntos(&raiz);
     if assuntos.is_empty() {
         eprintln!(
-            "Nenhum assunto encontrado em {}.\nCada assunto é uma pasta com _mapa.md, _perfil.md ou conceitos/.",
-            raiz.display()
+            "Nenhum assunto em {} (de {}).\n\
+             Cada assunto é uma pasta com _mapa.md, _perfil.md ou conceitos/. Para criar o primeiro,\n\
+             peça à skill professor: \"quero aprender <assunto>\".",
+            raiz.display(),
+            origem.descricao()
         );
         return ExitCode::FAILURE;
     }

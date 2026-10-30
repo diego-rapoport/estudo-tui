@@ -971,7 +971,7 @@ fn desenhar_exercicios(f: &mut Frame, app: &mut App, area: Rect) {
     let sel = app.sel_exercicios.min(a.exercicios.len() - 1);
     let n_questoes = a.exercicios[sel].questoes.len() as u16;
     let [lista, questoes] =
-        Layout::vertical([Constraint::Fill(1), Constraint::Length((n_questoes + 2).clamp(3, area.height / 2))])
+        Layout::vertical([Constraint::Fill(1), Constraint::Length((n_questoes + 2).clamp(3, (area.height / 2).max(3)))])
             .areas(area);
 
     let itens: Vec<ListItem> = a
@@ -1042,7 +1042,7 @@ fn desenhar_pesquisa(f: &mut Frame, app: &mut App, area: Rect) {
     let sel = app.sel_pesquisa.min(a.pesquisas.len() - 1);
     let n_secoes = a.pesquisas[sel].secoes.len() as u16;
     let [lista, secoes] =
-        Layout::vertical([Constraint::Fill(1), Constraint::Length((n_secoes + 2).clamp(3, area.height / 2))])
+        Layout::vertical([Constraint::Fill(1), Constraint::Length((n_secoes + 2).clamp(3, (area.height / 2).max(3)))])
             .areas(area);
 
     let itens: Vec<ListItem> = a

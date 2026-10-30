@@ -1,0 +1,7 @@
+schema_version: "1.1"
+name: diagnostico-resposta-verbosa
+expected_outcome: |
+  Diante de uma resposta longa e confusa no meio do diagnóstico, o professor dá um feedback
+  curto que separa o que está certo (entrada → saída) dos equívocos (o círculo como função,
+  "função = equação com x e y", domínio confundido com y), sem dar uma aula, e segue com UMA
+  próxima pergunta adaptada para investigar o equívoco ou o pré-requisito.
