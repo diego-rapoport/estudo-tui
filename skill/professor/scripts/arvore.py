@@ -14,6 +14,7 @@ import datetime as dt
 import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 
 INTERVALOS = [1, 3, 7, 16, 35, 80, 180]
@@ -218,6 +219,23 @@ def atualizar_chave(texto, chave, valor):
     return "\n".join(linhas)
 
 
+def gravar_atomico(path, texto):
+    """Grava num temporário na mesma pasta e troca de uma vez com os.replace: se algo
+    interromper (processo morto, disco cheio), o arquivo fica inteiro na versão antiga."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(texto)
+            f.flush()
+            os.fsync(f.fileno())
+        if path.exists():
+            os.chmod(tmp, path.stat().st_mode & 0o777)  # mkstemp cria com 0600
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def cmd_registrar(args):
     pasta = Path(args.pasta).expanduser()
     hoje = data(args.data) or dt.date.today()
@@ -258,7 +276,11 @@ def cmd_registrar(args):
     else:
         texto = texto.rstrip("\n") + f"\n\n## Revisões\n{entrada}\n"
 
-    n["path"].write_text(texto, encoding="utf-8")
+    # Uma nota que é link para fora da pasta (ex.: vault baixado de outra pessoa) não é gravada.
+    destino = n["path"].resolve()
+    if not destino.is_relative_to(pasta.resolve()):
+        sys.exit(f"Recusado: {n['path']} aponta para {destino}, fora de {pasta}. Nada foi gravado.")
+    gravar_atomico(destino, texto)
     print(f"{slug}: {args.resultado} → próxima revisão em {proxima} (intervalo {novo}d{nivel_txt})")
 
 
@@ -340,10 +362,10 @@ def cmd_base(args):
         nova.mkdir(parents=True, exist_ok=True)
         cfg = arquivo_config()
         cfg.parent.mkdir(parents=True, exist_ok=True)
-        cfg.write_text(
+        gravar_atomico(
+            cfg,
             "# Pasta dos estudos: a skill professor escreve aqui e a TUI `estudando` lê daqui.\n"
             f"pasta = {string_toml(com_til(nova))}\n",
-            encoding="utf-8",
         )
         print(f"Pasta de estudos: {nova}\nGravado em {cfg}")
         if os.environ.get("ESTUDANDO_DIR", "").strip():
