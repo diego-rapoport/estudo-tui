@@ -1,0 +1,16 @@
+[package]
+name = "estudo-tui"
+version = "0.1.0"
+edition = "2024"
+description = "Visualizador TUI da árvore de conhecimento da skill professor"
+
+[[bin]]
+name = "estudando"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.30"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+[profile.release]
+strip = true
