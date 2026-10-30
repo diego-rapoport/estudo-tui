@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 description = "Visualizador TUI da árvore de conhecimento da skill professor"
 license = "MIT"
+authors = ["Diego Rapoport"]
+repository = "https://github.com/diego-rapoport/estudo-tui"
 
 [[bin]]
 name = "estudando"
