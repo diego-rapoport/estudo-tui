@@ -352,6 +352,11 @@ OPCOES_SESSAO = """
 # Sessão (`estudando --sessao`): comandos dos painéis ao lado da TUI. "" desliga o painel.
 # ia = "claude"         # o professor: claude, gemini, codex...
 # caderno = "python3"   # rascunho e contas: python3, node, qalc, "nvim rascunho.md"...
+
+# Tamanhos da sessão, em %: largura da TUI e proporção professor/caderno à direita.
+# largura_tui = 55
+# altura_ia = 60
+# altura_caderno = 40
 """
 
 

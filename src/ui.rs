@@ -23,6 +23,10 @@ const MESES: [&str; 12] = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     let hoje = hoje();
+    if f.area().width < 12 {
+        desenhar_recolhida(f, app, hoje);
+        return;
+    }
     let [topo, meio, rodape] =
         Layout::vertical([Constraint::Length(3), Constraint::Fill(1), Constraint::Length(1)]).areas(f.area());
     desenhar_topo(f, app, topo, hoje);
@@ -69,6 +73,17 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     if app.ajuda {
         desenhar_ajuda(f, app.paineis.is_some());
     }
+}
+
+/// A TUI recolhida na sessão: uma faixa com o atalho para voltar e as revisões vencidas.
+fn desenhar_recolhida(f: &mut Frame, app: &App, hoje: NaiveDate) {
+    let r = resumo(&app.assuntos[app.idx], hoje);
+    let mut linhas = vec![Line::from(Span::styled("»", negrito(ACENTO))), Line::from(Span::styled("b", Style::new().fg(APAGADO)))];
+    if r.vencidas + r.hoje > 0 {
+        linhas.push(Line::default());
+        linhas.push(Line::from(Span::styled((r.vencidas + r.hoje).to_string(), negrito(Color::Red))));
+    }
+    f.render_widget(Paragraph::new(linhas).centered(), f.area());
 }
 
 fn bloco(titulo: &str) -> Block<'static> {
@@ -1092,8 +1107,11 @@ fn desenhar_rodape(f: &mut Frame, app: &App, area: Rect) {
                 _ => &[("j/k", "rolar"), ("o", "editar"), ("Tab", "aba"), ("[ ]", "assunto"), ("?", "ajuda"), ("q", "sair")],
             }
         };
-        let paineis: &[(&str, &str)] =
-            if app.paineis.is_some() && !app.lista_aberta() { &[("p", "perguntar"), ("i c", "painéis")] } else { &[] };
+        let paineis: &[(&str, &str)] = match (app.lista_aberta(), app.paineis.is_some()) {
+            (true, _) => &[],
+            (false, true) => &[("p", "perguntar"), ("i c", "painéis"), ("b", "recolher")],
+            (false, false) => &[("i c", "professor e caderno")],
+        };
         let mut spans = vec![Span::raw(" ")];
         for (tecla, acao) in dicas.iter().chain(paineis) {
             spans.push(Span::styled(*tecla, negrito(ACENTO)));
@@ -1106,7 +1124,7 @@ fn desenhar_rodape(f: &mut Frame, app: &App, area: Rect) {
 
 fn desenhar_ajuda(f: &mut Frame, paineis: bool) {
     let area = f.area();
-    let (w, h) = (62.min(area.width), if paineis { 30 } else { 26 }.min(area.height));
+    let (w, h) = (62.min(area.width), if paineis { 31 } else { 27 }.min(area.height));
     let caixa = Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 2, w, h);
     let tecla = |t: &str, d: &str| {
         Line::from(vec![Span::styled(format!("  {t:<14}"), negrito(ACENTO)), Span::raw(d.to_string())])
@@ -1143,9 +1161,12 @@ fn desenhar_ajuda(f: &mut Frame, paineis: bool) {
             tecla("i / c", "ir ao professor / ao caderno (reabre se fechou)"),
             tecla("p", "perguntar ao professor sobre o item em foco"),
             tecla("Alt+setas", "trocar de painel (no seu tmux: Ctrl-b setas)"),
+            tecla("b / Alt+b", "recolher / expandir esta TUI"),
             tecla("Alt+z", "ampliar o painel atual (de novo para voltar)"),
         ];
         linhas.splice(11..11, extra);
+    } else {
+        linhas.insert(11, tecla("i / c / p", "abrir o professor / o caderno ao lado (tmux)"));
     }
     f.render_widget(Clear, caixa);
     f.render_widget(Paragraph::new(linhas).wrap(Wrap { trim: false }).block(bloco("Ajuda")), caixa);

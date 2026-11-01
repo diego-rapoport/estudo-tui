@@ -15,10 +15,15 @@ use std::process::Command;
 
 use crate::config;
 
-const SOCKET: &str = "estudando";
+/// Servidor próprio; `$ESTUDANDO_SOCKET` troca o nome (testes, ou duas sessões ao mesmo tempo).
+fn socket() -> String {
+    env::var("ESTUDANDO_SOCKET").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "estudando".into())
+}
 const SESSAO: &str = "estudando";
 const MARCA: &str = "@estudando";
 const TITULO: &str = "@estudando-titulo";
+/// Largura da TUI recolhida: uma faixa que ainda dá para clicar.
+pub const RECOLHIDA: u16 = 3;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Papel {
@@ -27,7 +32,15 @@ pub enum Papel {
 }
 
 impl Papel {
-    fn nome(self) -> &'static str {
+    pub fn de_nome(nome: &str) -> Option<Papel> {
+        match nome {
+            "professor" | "ia" => Some(Papel::Professor),
+            "caderno" => Some(Papel::Caderno),
+            _ => None,
+        }
+    }
+
+    pub fn nome(self) -> &'static str {
         match self {
             Papel::Professor => "professor",
             Papel::Caderno => "caderno",
@@ -79,7 +92,7 @@ impl Comandos {
     }
 
     /// Repassa as escolhas para a TUI que vai rodar dentro da sessão nova.
-    fn como_argumentos(&self) -> Vec<OsString> {
+    pub fn como_argumentos(&self) -> Vec<OsString> {
         let mut v = Vec::new();
         for (flag, valor) in [("--ia", &self.ia), ("--caderno", &self.caderno)] {
             if let Some(valor) = valor {
@@ -104,7 +117,7 @@ impl Tmux {
     {
         let mut c = Command::new("tmux");
         if self.proprio {
-            c.args(["-L", SOCKET]);
+            c.arg("-L").arg(socket());
         }
         c.args(args);
         c
@@ -129,10 +142,38 @@ fn tem_tmux() -> bool {
     Command::new("tmux").arg("-V").output().is_ok_and(|s| s.status.success())
 }
 
+/// Tamanhos da sessão, em % (config: `largura_tui`, `altura_ia`, `altura_caderno`).
+#[derive(Clone, Copy)]
+struct Tamanhos {
+    /// Largura da TUI na janela.
+    tui: u16,
+    /// Altura do professor na coluna da direita; o caderno fica com o resto.
+    professor: u16,
+}
+
+impl Tamanhos {
+    fn do_config() -> Tamanhos {
+        let ler = |chave: &str| config::chave(chave).and_then(|v| v.trim().trim_end_matches('%').parse::<u16>().ok());
+        Tamanhos::de(ler("largura_tui"), ler("altura_ia"), ler("altura_caderno"))
+    }
+
+    fn de(tui: Option<u16>, ia: Option<u16>, caderno: Option<u16>) -> Tamanhos {
+        let tui = tui.unwrap_or(55);
+        // As alturas são uma proporção: 60/40, 3/2 e só `altura_ia = 60` dão no mesmo.
+        let professor = match (ia, caderno) {
+            (Some(ia), Some(cad)) if ia + cad > 0 => ia * 100 / (ia + cad),
+            (Some(ia), None) => ia,
+            (None, Some(cad)) => 100u16.saturating_sub(cad),
+            _ => 60,
+        };
+        Tamanhos { tui: tui.clamp(10, 90), professor: professor.clamp(10, 90) }
+    }
+}
+
 /// Fora do tmux: cria (ou reaproveita) a sessão `estudando` no servidor próprio, com a TUI
-/// rodando `tui` (que, dentro dela, abre os outros painéis) e se conecta a ela. Só volta se
-/// der errado; no caminho feliz o processo vira o `tmux attach`.
-pub fn abrir_sessao(tui: Vec<OsString>, raiz: &Path, comandos: &Comandos) -> io::Error {
+/// rodando `tui` (que, dentro dela, abre os painéis de `abrir`) e se conecta a ela. Só volta
+/// se der errado; no caminho feliz o processo vira o `tmux attach`.
+pub fn abrir_sessao(tui: Vec<OsString>, raiz: &Path, comandos: &Comandos, abrir: &[Papel]) -> io::Error {
     if !tem_tmux() {
         return io::Error::other("a sessão precisa do tmux; instale-o (pacote `tmux`) e rode de novo");
     }
@@ -147,17 +188,20 @@ pub fn abrir_sessao(tui: Vec<OsString>, raiz: &Path, comandos: &Comandos) -> io:
     }
 
     let (largura, altura) = ratatui::crossterm::terminal::size().unwrap_or((200, 50));
-    let mut nova: Vec<OsString> = ["new-session", "-d", "-s", SESSAO, "-x"].map(OsString::from).into();
+    let mut nova: Vec<OsString> = ["new-session", "-d", "-P", "-F", "#{pane_id}", "-s", SESSAO, "-x"].map(OsString::from).into();
     nova.extend([largura.to_string().into(), "-y".into(), altura.to_string().into(), "-c".into()]);
     nova.push(raiz.into());
     nova.push("--".into());
     nova.extend(tui);
     nova.extend(comandos.como_argumentos());
-    nova.push("--sessao".into());
-    if let Err(e) = t.rodar(&nova) {
-        return e;
+    for papel in abrir {
+        nova.extend(["--painel".into(), papel.nome().into()]);
     }
-    if let Err(e) = t.rodar(opcoes_do_servidor()) {
+    let id_tui = match t.rodar(&nova) {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+    if let Err(e) = t.rodar(opcoes_do_servidor(&id_tui)) {
         let _ = t.rodar(["kill-server"]);
         return e;
     }
@@ -165,7 +209,7 @@ pub fn abrir_sessao(tui: Vec<OsString>, raiz: &Path, comandos: &Comandos) -> io:
 }
 
 /// Só no servidor próprio: mouse, rótulos nos painéis, Alt+setas e uma linha de ajuda.
-fn opcoes_do_servidor() -> Vec<String> {
+fn opcoes_do_servidor(tui: &str) -> Vec<String> {
     let mut opcoes: Vec<Vec<String>> = [
         ["set", "-g", "mouse", "on"].as_slice(),
         &["set", "-s", "escape-time", "10"],
@@ -176,7 +220,7 @@ fn opcoes_do_servidor() -> Vec<String> {
         &["set", "-g", "window-status-format", ""],
         &["set", "-g", "window-status-current-format", ""],
         &["set", "-g", "status-right-length", "120"],
-        &["set", "-g", "status-right", " Alt+setas ou clique: trocar de painel · Alt+z: ampliar · Ctrl-b d: sair sem fechar "],
+        &["set", "-g", "status-right", " Alt+setas ou clique: trocar de painel · Alt+b: recolher a TUI · Alt+z: ampliar · Ctrl-b d: sair sem fechar "],
         &["set", "-g", "pane-border-status", "top"],
         &["set", "-g", "pane-border-format", " #{?@estudando-titulo,#{@estudando-titulo},#{pane_title}} "],
         &["set", "-g", "pane-active-border-style", "fg=cyan"],
@@ -186,6 +230,8 @@ fn opcoes_do_servidor() -> Vec<String> {
         &["bind", "-n", "M-Up", "select-pane", "-U"],
         &["bind", "-n", "M-Down", "select-pane", "-D"],
         &["bind", "-n", "M-z", "resize-pane", "-Z"],
+        // De qualquer painel: a própria TUI recolhe ou expande (tecla b).
+        &["bind", "-n", "M-b", "send-keys", "-t", tui, "b"],
     ]
     .iter()
     .map(|o| o.iter().map(|s| s.to_string()).collect())
@@ -203,6 +249,7 @@ pub struct Paineis {
     tui: String,
     raiz: PathBuf,
     comandos: Comandos,
+    tamanhos: Tamanhos,
 }
 
 /// O que aconteceu ao pedir um painel.
@@ -221,7 +268,7 @@ impl Paineis {
         let tmux = Tmux { proprio: false };
         tmux.rodar(["set", "-p", "-t", &tui, MARCA, "tui", ";", "set", "-p", "-t", &tui, TITULO, "estudando"]).ok()?;
         let raiz = raiz.canonicalize().unwrap_or_else(|_| raiz.to_path_buf());
-        Some(Paineis { tmux, tui, raiz, comandos })
+        Some(Paineis { tmux, tui, raiz, comandos, tamanhos: Tamanhos::do_config() })
     }
 
     /// (id, vivo) do painel com esse papel nesta janela.
@@ -266,15 +313,17 @@ impl Paineis {
         }
         // Coluna da direita: professor em cima, caderno embaixo. Se o vizinho já existe,
         // divide ele; senão, divide a TUI.
+        let Tamanhos { tui, professor } = self.tamanhos;
         let vizinho = self.achar(papel.outro()).map(|(id, _)| id);
-        let (alvo, divisao): (&str, &[&str]) = match (papel, &vizinho) {
-            (Papel::Professor, Some(v)) => (v, &["-v", "-b", "-l", "60%"]),
-            (Papel::Caderno, Some(v)) => (v, &["-v", "-l", "40%"]),
-            (_, None) => (&self.tui, &["-h", "-l", "45%"]),
+        let (alvo, divisao, tamanho) = match (papel, &vizinho) {
+            (Papel::Professor, Some(v)) => (v, ["-v", "-b"].as_slice(), professor),
+            (Papel::Caderno, Some(v)) => (v, ["-v"].as_slice(), 100 - professor),
+            (_, None) => (&self.tui, ["-h"].as_slice(), 100 - tui),
         };
         let titulo = format!("{} · {comando}", papel.nome());
         let mut args: Vec<String> = vec!["split-window".into(), "-t".into(), alvo.into()];
         args.extend(divisao.iter().map(|s| s.to_string()));
+        args.extend(["-l".into(), format!("{tamanho}%")]);
         args.extend(ambiente);
         args.extend(["-P".into(), "-F".into(), "#{pane_id}".into()]);
         args.push(comando);
@@ -306,6 +355,23 @@ impl Paineis {
         Ok(aberto)
     }
 
+    /// Recolhe a TUI numa faixa estreita (o professor e o caderno ficam com a largura) ou
+    /// a devolve ao tamanho do config. Devolve se ela ficou recolhida.
+    pub fn alternar_tui(&self) -> io::Result<bool> {
+        let largura: u16 = self.tmux.rodar(["display", "-p", "-t", &self.tui, "#{pane_width}"])?.parse().unwrap_or(0);
+        if largura <= RECOLHIDA + 1 {
+            let tamanho = format!("{}%", self.tamanhos.tui);
+            self.tmux.rodar(["resize-pane", "-t", &self.tui, "-x", &tamanho, ";", "select-pane", "-t", &self.tui])?;
+            return Ok(false);
+        }
+        let Some((vizinho, _)) = self.achar(Papel::Professor).or_else(|| self.achar(Papel::Caderno)) else {
+            return Err(io::Error::other("nada ao lado para ocupar o espaço: abra o professor (i) ou o caderno (c)"));
+        };
+        let recolhida = RECOLHIDA.to_string();
+        self.tmux.rodar(["resize-pane", "-t", &self.tui, "-x", &recolhida, ";", "select-pane", "-t", &vizinho])?;
+        Ok(true)
+    }
+
     /// Fecha os painéis abertos pela TUI (ao sair dela).
     pub fn fechar(&self) {
         for papel in [Papel::Professor, Papel::Caderno] {
@@ -314,5 +380,24 @@ impl Paineis {
             }
         }
         let _ = self.tmux.rodar(["set", "-p", "-u", "-t", &self.tui, MARCA, ";", "set", "-p", "-u", "-t", &self.tui, TITULO]);
+    }
+}
+
+#[cfg(test)]
+mod testes {
+    use super::Tamanhos;
+
+    #[test]
+    fn tamanhos_sao_proporcoes_com_limites() {
+        let t = |tui, ia, cad| {
+            let t = Tamanhos::de(tui, ia, cad);
+            (t.tui, t.professor)
+        };
+        assert_eq!(t(None, None, None), (55, 60));
+        assert_eq!(t(Some(70), Some(3), Some(2)), (70, 60));
+        assert_eq!(t(None, Some(60), Some(40)), (55, 60));
+        assert_eq!(t(None, None, Some(25)), (55, 75));
+        assert_eq!(t(Some(100), Some(0), Some(0)), (90, 60));
+        assert_eq!(t(Some(0), Some(5), None), (10, 10));
     }
 }

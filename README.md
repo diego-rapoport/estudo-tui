@@ -88,7 +88,11 @@ estudando --sessao calculo                      # TUI + professor (claude) + cad
 estudando -s --ia gemini --caderno qalc         # outros programas só nesta vez
 estudando -s --caderno "nvim rascunho.md"       # caderno de texto em vez de REPL
 estudando -s --ia ""                            # sem professor (só TUI e caderno)
+estudando --painel caderno                      # só o caderno; o professor abre com i
 ```
+
+Não precisa decidir antes: no `estudando` normal, apertar `i`, `c` ou `p` leva a TUI para
+uma sessão no mesmo assunto e aba, já com o painel pedido.
 
 Abre tudo no tmux, visível ao mesmo tempo: a TUI à esquerda e, à direita, o **professor**
 em cima (uma IA de terminal; com o `claude`, a skill professor) e o **caderno** embaixo
@@ -99,25 +103,29 @@ aparece na TUI na hora.
 | Tecla (na TUI) | O que faz |
 |---|---|
 | `p` | começa uma pergunta ao professor sobre o conceito, lista ou relatório em foco (com o caminho da nota) e leva você até lá para completar |
-| `i` / `c` | vai para o professor / caderno; se o programa foi encerrado, reabre |
+| `i` / `c` | vai para o professor / caderno; se o painel não existe ou o programa foi encerrado, abre |
+| `b` | recolhe a TUI numa faixa estreita (com o número de revisões pendentes) para o professor e o caderno ocuparem a largura; `b` de novo ou `Alt+b` de qualquer painel expande |
 | `q` | sai da TUI e fecha os dois painéis |
 
 Para trocar de painel: `Alt`+setas ou clique. `Alt+z` amplia o painel atual (de novo para
 voltar), e `Ctrl-b d` sai sem fechar; rodar `estudando -s` outra vez volta para a mesma
 sessão, com a conversa intacta. Arrastar a borda redimensiona.
 
-Os comandos padrão ficam no config (`""` desliga o painel):
+Os comandos e os tamanhos ficam no config (`""` desliga o painel):
 
 ```toml
 pasta = "~/Documentos/Aprendizado"
 ia = "claude"          # ou "gemini", "codex"...
 caderno = "python3"    # ou "node", "qalc", "nvim rascunho.md"...
+largura_tui = 55       # % da largura para a TUI
+altura_ia = 60         # proporção professor/caderno na coluna da direita
+altura_caderno = 40
 ```
 
 Fora de um tmux, a sessão roda num servidor tmux próprio (`tmux -L estudando`), com mouse,
 rótulos nos painéis e os atalhos acima, sem mexer no seu `~/.tmux.conf`. Se você já está
-num tmux, ela divide a janela atual e usa os seus atalhos (`Ctrl-b` setas); `i`, `c` e `p`
-funcionam ali até sem `--sessao`, abrindo os painéis quando você pede.
+num tmux, ela divide a janela atual e usa os seus atalhos (`Ctrl-b` setas; para expandir a
+TUI recolhida, vá até ela e aperte `b`).
 
 ## "O que estudar agora"
 

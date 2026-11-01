@@ -98,6 +98,8 @@ pub struct App {
     pub mensagem: Option<String>,
     /// Professor e caderno ao lado, quando a TUI roda dentro do tmux.
     pub paineis: Option<Paineis>,
+    /// Pediu um painel fora do tmux: ao sair, a TUI reabre numa sessão com ele.
+    pub mudar_para_sessao: Option<Papel>,
     assinatura: u64,
     sair: bool,
 }
@@ -125,6 +127,7 @@ impl App {
             ajuda: false,
             mensagem: None,
             paineis,
+            mudar_para_sessao: None,
             sair: false,
         };
         app.selecionar_fronteira();
@@ -277,6 +280,7 @@ impl App {
             KeyCode::Char('i') => self.painel(Papel::Professor),
             KeyCode::Char('c') => self.painel(Papel::Caderno),
             KeyCode::Char('p') => self.perguntar(),
+            KeyCode::Char('b') => self.recolher(),
             KeyCode::Char('d') if lista && !ctrl => {
                 self.revelar.dicas = !self.revelar.dicas;
                 self.mensagem = Some(if self.revelar.dicas { "dicas visíveis" } else { "dicas ocultas" }.into());
@@ -336,9 +340,19 @@ impl App {
         Ok(())
     }
 
+    /// Sem painéis: fora do tmux, sai para reabrir numa sessão com o painel pedido.
+    fn sem_paineis(&mut self, papel: Papel) {
+        if std::env::var_os("TMUX").is_none() {
+            self.mudar_para_sessao = Some(papel);
+            self.sair = true;
+        } else {
+            self.mensagem = Some("não achei o painel do tmux desta TUI ($TMUX_PANE)".into());
+        }
+    }
+
     fn painel(&mut self, papel: Papel) {
         let Some(paineis) = &self.paineis else {
-            self.mensagem = Some(FORA_DO_TMUX.into());
+            self.sem_paineis(papel);
             return;
         };
         self.mensagem = match paineis.focar(papel, &self.assunto().nome) {
@@ -348,11 +362,22 @@ impl App {
         };
     }
 
+    fn recolher(&mut self) {
+        let Some(paineis) = &self.paineis else {
+            self.mensagem = Some("recolher só faz sentido na sessão: aperte i ou c para abri-la".into());
+            return;
+        };
+        self.mensagem = match paineis.alternar_tui() {
+            Ok(_) => None,
+            Err(e) => Some(e.to_string()),
+        };
+    }
+
     /// Começa uma pergunta ao professor sobre o que está em foco; o aluno completa por lá.
     fn perguntar(&mut self) {
         let texto = self.contexto_para_o_professor();
         let Some(paineis) = &self.paineis else {
-            self.mensagem = Some(FORA_DO_TMUX.into());
+            self.sem_paineis(Papel::Professor);
             return;
         };
         self.mensagem = match paineis.perguntar(&texto, &self.assunto().nome) {
@@ -399,8 +424,6 @@ impl App {
         Ok(())
     }
 }
-
-const FORA_DO_TMUX: &str = "painéis só dentro do tmux: rode `estudando --sessao`";
 
 fn andar(atual: usize, delta: i32, n: usize) -> usize {
     if n == 0 {
