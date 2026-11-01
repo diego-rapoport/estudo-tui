@@ -13,6 +13,7 @@ use ratatui::widgets::{ListState, TableState};
 
 use crate::analise::{hoje, itens_trilha, revisoes_ordenadas};
 use crate::model::{Assunto, assinatura, carregar_assuntos};
+use crate::sessao::{Aberto, Paineis, Papel};
 use crate::ui;
 
 const CHECAR_ARQUIVOS: Duration = Duration::from_secs(2);
@@ -95,12 +96,14 @@ pub struct App {
     pub revelar: Revelar,
     pub ajuda: bool,
     pub mensagem: Option<String>,
+    /// Professor e caderno ao lado, quando a TUI roda dentro do tmux.
+    pub paineis: Option<Paineis>,
     assinatura: u64,
     sair: bool,
 }
 
 impl App {
-    pub fn new(raiz: PathBuf, assuntos: Vec<Assunto>, idx: usize) -> Self {
+    pub fn new(raiz: PathBuf, assuntos: Vec<Assunto>, idx: usize, paineis: Option<Paineis>) -> Self {
         let mut app = App {
             assinatura: assinatura(&raiz),
             raiz,
@@ -121,6 +124,7 @@ impl App {
             revelar: Revelar::default(),
             ajuda: false,
             mensagem: None,
+            paineis,
             sair: false,
         };
         app.selecionar_fronteira();
@@ -270,6 +274,9 @@ impl App {
                 self.mensagem = Some("recarregado".into());
             }
             KeyCode::Char('o') => self.abrir_no_editor(terminal)?,
+            KeyCode::Char('i') => self.painel(Papel::Professor),
+            KeyCode::Char('c') => self.painel(Papel::Caderno),
+            KeyCode::Char('p') => self.perguntar(),
             KeyCode::Char('d') if lista && !ctrl => {
                 self.revelar.dicas = !self.revelar.dicas;
                 self.mensagem = Some(if self.revelar.dicas { "dicas visíveis" } else { "dicas ocultas" }.into());
@@ -304,25 +311,72 @@ impl App {
         Ok(())
     }
 
-    fn abrir_no_editor(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
+    /// O arquivo do que está aberto ou selecionado (o que `o` abre e `p` cita).
+    fn arquivo_em_foco(&self) -> Option<PathBuf> {
         let a = self.assunto();
         let caminho = |d: Option<Detalhe>| match d? {
             Detalhe::Conceito(s) => a.conceitos.get(&s).map(|c| c.path.clone()),
             Detalhe::Arquivo(p) => Some(p),
         };
-        let alvo = match (&self.detalhe, self.aba) {
+        match (&self.detalhe, self.aba) {
             (Some(d), _) => caminho(Some(d.clone())),
             (None, Aba::Trilha | Aba::Revisoes | Aba::Exercicios | Aba::Pesquisa) => caminho(self.selecionado()),
             (None, Aba::Referencias) => a.referencias.as_ref().map(|r| r.0.clone()),
             (None, Aba::Perfil | Aba::Pendencias) => a.perfil.as_ref().map(|p| p.0.clone()),
-        };
-        let Some(alvo) = alvo else {
+        }
+    }
+
+    fn abrir_no_editor(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
+        let Some(alvo) = self.arquivo_em_foco() else {
             self.mensagem = Some("nada para abrir aqui (conceito ainda sem nota)".into());
             return Ok(());
         };
         self.editar(&alvo, terminal)?;
         self.recarregar();
         Ok(())
+    }
+
+    fn painel(&mut self, papel: Papel) {
+        let Some(paineis) = &self.paineis else {
+            self.mensagem = Some(FORA_DO_TMUX.into());
+            return;
+        };
+        self.mensagem = match paineis.focar(papel, &self.assunto().nome) {
+            Ok(Aberto::Novo(_)) => Some("abrindo...".into()),
+            Ok(Aberto::Pronto(_)) => None,
+            Err(e) => Some(e.to_string()),
+        };
+    }
+
+    /// Começa uma pergunta ao professor sobre o que está em foco; o aluno completa por lá.
+    fn perguntar(&mut self) {
+        let texto = self.contexto_para_o_professor();
+        let Some(paineis) = &self.paineis else {
+            self.mensagem = Some(FORA_DO_TMUX.into());
+            return;
+        };
+        self.mensagem = match paineis.perguntar(&texto, &self.assunto().nome) {
+            Ok(Aberto::Novo(_)) => Some("professor abrindo; aperte p de novo quando ele estiver pronto".into()),
+            Ok(Aberto::Pronto(_)) => None,
+            Err(e) => Some(e.to_string()),
+        };
+    }
+
+    fn contexto_para_o_professor(&self) -> String {
+        let a = self.assunto();
+        let relativo = |p: &Path| p.strip_prefix(&self.raiz).unwrap_or(p).display().to_string();
+        let foco = match self.detalhe.clone().or_else(|| self.selecionado()) {
+            Some(Detalhe::Conceito(slug)) => match a.conceitos.get(&slug) {
+                Some(c) => format!("no conceito \"{}\" ({})", c.titulo, relativo(&c.path)),
+                None => format!("no conceito \"{}\" (ainda sem nota)", a.titulo_de(&slug)),
+            },
+            Some(Detalhe::Arquivo(p)) => format!("em {}", relativo(&p)),
+            None => match self.arquivo_em_foco() {
+                Some(p) => format!("na aba {} ({})", self.aba.titulo(), relativo(&p)),
+                None => format!("na aba {}", self.aba.titulo()),
+            },
+        };
+        format!("Estudando {} ({}/) no estudando, {foco}: ", a.titulo, a.nome)
     }
 
     fn editar(&mut self, alvo: &Path, terminal: &mut DefaultTerminal) -> io::Result<()> {
@@ -345,6 +399,8 @@ impl App {
         Ok(())
     }
 }
+
+const FORA_DO_TMUX: &str = "painéis só dentro do tmux: rode `estudando --sessao`";
 
 fn andar(atual: usize, delta: i32, n: usize) -> usize {
     if n == 0 {

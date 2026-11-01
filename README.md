@@ -13,7 +13,8 @@ Duas peças que trabalham juntas:
 
 ## Instalar
 
-Requer Rust (cargo) e, para a skill, Python 3 e o Claude Code.
+Requer Rust (cargo) e, para a skill, Python 3 e o Claude Code. A sessão com painéis
+(`estudando --sessao`) usa o tmux.
 
 ```sh
 ./instalar.sh              # TUI + skill + pergunta onde guardar os estudos
@@ -79,6 +80,44 @@ Numa lista de exercícios aberta, dicas e gabarito (callouts recolhidos `> [!tip
 `> [!check]-`) ficam **ocultos**: `d` mostra as dicas e `g` mostra o gabarito. Uma questão
 conta como respondida quando há texto depois de `**Sua resposta:**`. Responda pelo `o`, no
 editor, ou no chat com o professor.
+
+## Sessão: professor e caderno ao lado
+
+```sh
+estudando --sessao calculo                      # TUI + professor (claude) + caderno (python3)
+estudando -s --ia gemini --caderno qalc         # outros programas só nesta vez
+estudando -s --caderno "nvim rascunho.md"       # caderno de texto em vez de REPL
+estudando -s --ia ""                            # sem professor (só TUI e caderno)
+```
+
+Abre tudo no tmux, visível ao mesmo tempo: a TUI à esquerda e, à direita, o **professor**
+em cima (uma IA de terminal; com o `claude`, a skill professor) e o **caderno** embaixo
+(qualquer programa de terminal: REPL, calculadora, editor). Os dois rodam na pasta de
+estudos, com `$ESTUDANDO_DIR` e `$ESTUDANDO_ASSUNTO` definidas, e o que o professor gravar
+aparece na TUI na hora.
+
+| Tecla (na TUI) | O que faz |
+|---|---|
+| `p` | começa uma pergunta ao professor sobre o conceito, lista ou relatório em foco (com o caminho da nota) e leva você até lá para completar |
+| `i` / `c` | vai para o professor / caderno; se o programa foi encerrado, reabre |
+| `q` | sai da TUI e fecha os dois painéis |
+
+Para trocar de painel: `Alt`+setas ou clique. `Alt+z` amplia o painel atual (de novo para
+voltar), e `Ctrl-b d` sai sem fechar; rodar `estudando -s` outra vez volta para a mesma
+sessão, com a conversa intacta. Arrastar a borda redimensiona.
+
+Os comandos padrão ficam no config (`""` desliga o painel):
+
+```toml
+pasta = "~/Documentos/Aprendizado"
+ia = "claude"          # ou "gemini", "codex"...
+caderno = "python3"    # ou "node", "qalc", "nvim rascunho.md"...
+```
+
+Fora de um tmux, a sessão roda num servidor tmux próprio (`tmux -L estudando`), com mouse,
+rótulos nos painéis e os atalhos acima, sem mexer no seu `~/.tmux.conf`. Se você já está
+num tmux, ela divide a janela atual e usa os seus atalhos (`Ctrl-b` setas); `i`, `c` e `p`
+funcionam ali até sem `--sessao`, abrindo os painéis quando você pede.
 
 ## "O que estudar agora"
 

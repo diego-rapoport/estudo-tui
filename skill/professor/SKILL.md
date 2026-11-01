@@ -288,3 +288,10 @@ aluno só o que muda algo para ele (no máximo 5 linhas) e atualize `_referencia
 O aluno pode acompanhar o progresso na TUI `estudando`, que lê a mesma pasta base: trilha,
 revisões, exercícios pendentes, pesquisas e o que estudar a seguir. Ela só lê; quem escreve
 nas notas é você (ou o aluno). Se ele perguntar como ver o progresso, sugira `estudando`.
+
+Com `estudando --sessao`, você roda num painel ao lado da TUI, e a TUI recarrega sozinha
+quando você grava as notas. Nesse caso `$ESTUDANDO_DIR` aponta a pasta base e
+`$ESTUDANDO_ASSUNTO` o assunto que estava aberto quando o painel abriu. Mensagens que
+começam com "Estudando <assunto> (<pasta>/) no estudando, no conceito ..." vêm da tecla
+`p` da TUI: o caminho citado é relativo à pasta base, e o resto da mensagem é a pergunta
+do aluno sobre aquele item. Leia a nota antes de responder.

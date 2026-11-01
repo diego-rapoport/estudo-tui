@@ -347,6 +347,33 @@ def sugestao_base():
     return casa / "Aprendizado"
 
 
+CABECALHO_CONFIG = "# Pasta dos estudos: a skill professor escreve aqui e a TUI `estudando` lê daqui.\n"
+OPCOES_SESSAO = """
+# Sessão (`estudando --sessao`): comandos dos painéis ao lado da TUI. "" desliga o painel.
+# ia = "claude"         # o professor: claude, gemini, codex...
+# caderno = "python3"   # rascunho e contas: python3, node, qalc, "nvim rascunho.md"...
+"""
+
+
+def com_pasta(atual, valor):
+    """O config com a linha `pasta = ...` trocada, sem mexer nas outras chaves (`ia`,
+    `caderno`...). Sem config, cria um novo. Mesma regra de `src/config.rs` da TUI."""
+    nova = f"pasta = {valor}"
+    if not atual.strip():
+        return f"{CABECALHO_CONFIG}{nova}\n{OPCOES_SESSAO}"
+    linhas, trocou = [], False
+    for linha in atual.splitlines():
+        chave, sep, _ = linha.partition("=")
+        if sep and chave.strip() == "pasta" and not trocou:
+            linhas.append(nova)
+            trocou = True
+        else:
+            linhas.append(linha)
+    if not trocou:
+        linhas.insert(0, nova)
+    return "\n".join(linhas) + "\n"
+
+
 def com_til(path):
     try:
         return "~/" + str(path.relative_to(Path.home()))
@@ -362,11 +389,8 @@ def cmd_base(args):
         nova.mkdir(parents=True, exist_ok=True)
         cfg = arquivo_config()
         cfg.parent.mkdir(parents=True, exist_ok=True)
-        gravar_atomico(
-            cfg,
-            "# Pasta dos estudos: a skill professor escreve aqui e a TUI `estudando` lê daqui.\n"
-            f"pasta = {string_toml(com_til(nova))}\n",
-        )
+        atual = cfg.read_text(encoding="utf-8") if cfg.is_file() else ""
+        gravar_atomico(cfg, com_pasta(atual, string_toml(com_til(nova))))
         print(f"Pasta de estudos: {nova}\nGravado em {cfg}")
         if os.environ.get("ESTUDANDO_DIR", "").strip():
             print("Atenção: $ESTUDANDO_DIR está definida e tem prioridade sobre o config.")

@@ -67,7 +67,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     desenhar_rodape(f, app, rodape);
     if app.ajuda {
-        desenhar_ajuda(f);
+        desenhar_ajuda(f, app.paineis.is_some());
     }
 }
 
@@ -1092,8 +1092,10 @@ fn desenhar_rodape(f: &mut Frame, app: &App, area: Rect) {
                 _ => &[("j/k", "rolar"), ("o", "editar"), ("Tab", "aba"), ("[ ]", "assunto"), ("?", "ajuda"), ("q", "sair")],
             }
         };
+        let paineis: &[(&str, &str)] =
+            if app.paineis.is_some() && !app.lista_aberta() { &[("p", "perguntar"), ("i c", "painéis")] } else { &[] };
         let mut spans = vec![Span::raw(" ")];
-        for (tecla, acao) in dicas {
+        for (tecla, acao) in dicas.iter().chain(paineis) {
             spans.push(Span::styled(*tecla, negrito(ACENTO)));
             spans.push(Span::styled(format!(" {acao}  "), Style::new().fg(APAGADO)));
         }
@@ -1102,9 +1104,9 @@ fn desenhar_rodape(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(Paragraph::new(linha), area);
 }
 
-fn desenhar_ajuda(f: &mut Frame) {
+fn desenhar_ajuda(f: &mut Frame, paineis: bool) {
     let area = f.area();
-    let (w, h) = (62.min(area.width), 26.min(area.height));
+    let (w, h) = (62.min(area.width), if paineis { 30 } else { 26 }.min(area.height));
     let caixa = Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 2, w, h);
     let tecla = |t: &str, d: &str| {
         Line::from(vec![Span::styled(format!("  {t:<14}"), negrito(ACENTO)), Span::raw(d.to_string())])
@@ -1112,7 +1114,7 @@ fn desenhar_ajuda(f: &mut Frame) {
     let legenda = |simbolo: &str, cor: Color, d: &str| {
         Line::from(vec![Span::styled(format!("  {simbolo:<14}"), Style::new().fg(cor)), Span::raw(d.to_string())])
     };
-    let linhas = vec![
+    let mut linhas = vec![
         tecla("j k ↓ ↑", "mover / rolar"),
         tecla("g G", "início / fim"),
         tecla("PgDn PgUp", "pular 10"),
@@ -1123,7 +1125,7 @@ fn desenhar_ajuda(f: &mut Frame) {
         tecla("[ ] h l", "trocar de assunto"),
         tecla("r", "recarregar (também é automático)"),
         tecla("Esc", "fechar"),
-        tecla("q", "sair"),
+        tecla("q", if paineis { "sair (fecha também o professor e o caderno)" } else { "sair" }),
         Line::default(),
         legenda("● vencida", Color::Red, "revisão atrasada"),
         legenda("● hoje", Color::Yellow, "revisar hoje"),
@@ -1136,6 +1138,15 @@ fn desenhar_ajuda(f: &mut Frame) {
             Style::new().fg(APAGADO),
         )),
     ];
+    if paineis {
+        let extra = [
+            tecla("i / c", "ir ao professor / ao caderno (reabre se fechou)"),
+            tecla("p", "perguntar ao professor sobre o item em foco"),
+            tecla("Alt+setas", "trocar de painel (no seu tmux: Ctrl-b setas)"),
+            tecla("Alt+z", "ampliar o painel atual (de novo para voltar)"),
+        ];
+        linhas.splice(11..11, extra);
+    }
     f.render_widget(Clear, caixa);
     f.render_widget(Paragraph::new(linhas).wrap(Wrap { trim: false }).block(bloco("Ajuda")), caixa);
 }

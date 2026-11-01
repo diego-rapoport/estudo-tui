@@ -46,4 +46,7 @@ fi
 if ! command -v estudando >/dev/null; then
     echo "==> Atenção: $(dirname "$bin") não está no PATH. Adicione-o para usar \`estudando\`."
 fi
-echo "==> Pronto. Rode: estudando"
+if ! command -v tmux >/dev/null; then
+    echo "==> Opcional: instale o tmux para usar \`estudando --sessao\` (professor e caderno ao lado)."
+fi
+echo "==> Pronto. Rode: estudando (ou estudando --sessao)"

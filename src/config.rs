@@ -77,14 +77,27 @@ fn valor_toml(bruto: &str) -> Option<String> {
     }
 }
 
-/// `pasta = ...` do config; ignora comentários e outras chaves.
+/// Valor de `chave = ...` no texto do config; ignora comentários e outras chaves.
+fn valor_da_chave(texto: &str, chave: &str) -> Option<String> {
+    texto.lines().find_map(|linha| {
+        let (k, valor) = linha.split_once('=')?;
+        if k.trim() != chave {
+            return None;
+        }
+        valor_toml(valor)
+    })
+}
+
+/// `pasta = ...` do config.
 fn ler_arquivo(cfg: &Path) -> Option<PathBuf> {
     let texto = fs::read_to_string(cfg).ok()?;
-    texto.lines().find_map(|linha| {
-        let (chave, valor) = linha.split_once('=')?;
-        let valor = valor_toml(valor).filter(|v| !v.is_empty())?;
-        (chave.trim() == "pasta").then(|| expandir(&valor))
-    })
+    valor_da_chave(&texto, "pasta").filter(|v| !v.is_empty()).map(|v| expandir(&v))
+}
+
+/// Uma chave qualquer do config (`ia`, `caderno`...). `Some("")` é diferente de ausente:
+/// quem chama decide o que o vazio significa.
+pub fn chave(nome: &str) -> Option<String> {
+    valor_da_chave(&fs::read_to_string(arquivo_config()).ok()?, nome)
 }
 
 fn string_toml(s: &str) -> String {
@@ -134,19 +147,45 @@ pub fn definir(caminho: &str) -> io::Result<(PathBuf, PathBuf)> {
     if let Some(dir) = cfg.parent() {
         fs::create_dir_all(dir)?;
     }
-    fs::write(
-        &cfg,
-        format!(
-            "# Pasta dos estudos: a skill professor escreve aqui e a TUI `estudando` lê daqui.\npasta = {}\n",
-            string_toml(&com_til(&pasta))
-        ),
-    )?;
+    let atual = fs::read_to_string(&cfg).unwrap_or_default();
+    fs::write(&cfg, com_pasta(&atual, &string_toml(&com_til(&pasta))))?;
     Ok((pasta, cfg))
 }
 
+/// O config com a linha `pasta = ...` trocada, sem mexer nas outras chaves. Sem config, cria
+/// um novo com as opções da sessão comentadas. Mesma regra de `arvore.py base --definir`.
+fn com_pasta(atual: &str, valor: &str) -> String {
+    let nova = format!("pasta = {valor}");
+    if atual.trim().is_empty() {
+        return format!("{CABECALHO}{nova}\n{OPCOES_SESSAO}");
+    }
+    let mut trocou = false;
+    let mut linhas: Vec<String> = atual
+        .lines()
+        .map(|l| match l.split_once('=') {
+            Some((k, _)) if k.trim() == "pasta" && !trocou => {
+                trocou = true;
+                nova.clone()
+            }
+            _ => l.to_string(),
+        })
+        .collect();
+    if !trocou {
+        linhas.insert(0, nova);
+    }
+    linhas.join("\n") + "\n"
+}
+
+const CABECALHO: &str = "# Pasta dos estudos: a skill professor escreve aqui e a TUI `estudando` lê daqui.\n";
+const OPCOES_SESSAO: &str = "
+# Sessão (`estudando --sessao`): comandos dos painéis ao lado da TUI. \"\" desliga o painel.
+# ia = \"claude\"         # o professor: claude, gemini, codex...
+# caderno = \"python3\"   # rascunho e contas: python3, node, qalc, \"nvim rascunho.md\"...
+";
+
 #[cfg(test)]
 mod testes {
-    use super::{string_toml, valor_toml};
+    use super::{com_pasta, string_toml, valor_da_chave, valor_toml};
 
     #[test]
     fn valor_toml_respeita_aspas_e_comentarios() {
@@ -162,5 +201,20 @@ mod testes {
         for s in [r"C:\x", r#"tem "aspas""#, "acentuação/#1"] {
             assert_eq!(valor_toml(&string_toml(s)).as_deref(), Some(s));
         }
+    }
+
+    #[test]
+    fn definir_pasta_preserva_as_outras_chaves() {
+        let novo = com_pasta("", "\"~/A\"");
+        assert_eq!(valor_da_chave(&novo, "pasta").as_deref(), Some("~/A"));
+        assert_eq!(valor_da_chave(&novo, "ia"), None, "as opções da sessão vêm comentadas");
+
+        let atual = "# meu\npasta = \"~/A\"\nia = \"gemini\"\ncaderno = \"\"\n";
+        let trocado = com_pasta(atual, "\"~/B\"");
+        assert_eq!(trocado, "# meu\npasta = \"~/B\"\nia = \"gemini\"\ncaderno = \"\"\n");
+        assert_eq!(valor_da_chave(&trocado, "caderno").as_deref(), Some(""));
+
+        let sem_pasta = com_pasta("ia = \"codex\"", "\"~/C\"");
+        assert_eq!(sem_pasta, "pasta = \"~/C\"\nia = \"codex\"\n");
     }
 }

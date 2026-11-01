@@ -4,24 +4,30 @@ mod analise;
 mod app;
 mod config;
 mod model;
+mod sessao;
 mod ui;
 
 use std::env;
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use app::App;
 use model::carregar_assuntos;
+use sessao::{Comandos, Paineis, Papel};
 
 const AJUDA: &str = "\
 estudando: progresso, revisões e próximo passo dos seus estudos
 
-Uso: estudando [ASSUNTO] [--dir PASTA]
+Uso: estudando [ASSUNTO] [--dir PASTA] [--sessao [--ia CMD] [--caderno CMD]]
      estudando --pasta
      estudando --definir-pasta CAMINHO
 
   ASSUNTO                abre direto nesse assunto (nome da pasta, ex.: calculo)
   -d, --dir PASTA        usa esta pasta só nesta execução
+  -s, --sessao           abre no tmux com o professor e o caderno ao lado da TUI
+      --ia CMD           comando do professor (padrão: claude; \"\" desliga)
+      --caderno CMD      comando do caderno (padrão: python3; \"\" desliga)
       --pasta            mostra qual pasta de estudos está em uso e de onde ela veio
       --definir-pasta C  grava C como pasta de estudos (cria se não existir)
   -h, --help             mostra esta ajuda
@@ -29,6 +35,9 @@ Uso: estudando [ASSUNTO] [--dir PASTA]
 
 A pasta de estudos é compartilhada com a skill professor. Ela vem de $ESTUDANDO_DIR ou,
 se a variável não existir, de `pasta = \"...\"` em ~/.config/estudando/config.toml.
+
+Os comandos da sessão também podem ficar no config, como `ia = \"gemini\"` e
+`caderno = \"qalc\"`. Dentro do tmux, i, c e p funcionam mesmo sem --sessao.
 
 Dentro da TUI, aperte ? para ver os atalhos.
 ";
@@ -38,6 +47,8 @@ fn main() -> ExitCode {
     let mut dir: Option<PathBuf> = None;
     let mut assunto: Option<String> = None;
     let mut mostrar_pasta = false;
+    let mut com_sessao = false;
+    let mut comandos = Comandos::default();
     while let Some(a) = args.next() {
         match a.as_str() {
             "--pasta" => mostrar_pasta = true,
@@ -67,6 +78,18 @@ fn main() -> ExitCode {
             "-V" | "--version" => {
                 println!("estudando {}", env!("CARGO_PKG_VERSION"));
                 return ExitCode::SUCCESS;
+            }
+            "-s" | "--sessao" => com_sessao = true,
+            "--ia" | "--caderno" => {
+                let Some(cmd) = args.next() else {
+                    eprintln!("{a} precisa de um comando (\"\" desliga o painel)");
+                    return ExitCode::from(2);
+                };
+                if a == "--ia" {
+                    comandos.ia = Some(cmd);
+                } else {
+                    comandos.caderno = Some(cmd);
+                }
             }
             "-d" | "--dir" => match args.next() {
                 Some(d) => dir = Some(PathBuf::from(d)),
@@ -128,9 +151,35 @@ fn main() -> ExitCode {
         }
     };
 
+    // Fora do tmux, a sessão roda num tmux próprio: este processo vira o `tmux attach` e a TUI
+    // de dentro (com --sessao e a pasta já resolvida) abre os painéis.
+    if com_sessao && env::var_os("TMUX").is_none() {
+        let raiz = raiz.canonicalize().unwrap_or(raiz);
+        let exe = env::current_exe().map_or_else(|_| OsString::from("estudando"), PathBuf::into_os_string);
+        let tui = vec![exe, assuntos[idx].nome.clone().into(), "--dir".into(), raiz.clone().into_os_string()];
+        let erro = sessao::abrir_sessao(tui, &raiz, &comandos);
+        eprintln!("não consegui abrir a sessão: {erro}");
+        return ExitCode::FAILURE;
+    }
+
+    let paineis = Paineis::nesta_janela(&raiz, comandos);
+    let mut aviso = None;
+    if com_sessao && let Some(p) = &paineis {
+        for papel in [Papel::Professor, Papel::Caderno] {
+            if let Err(e) = p.garantir(papel, &assuntos[idx].nome) {
+                aviso = Some(e.to_string());
+            }
+        }
+    }
+
     let mut terminal = ratatui::init();
-    let resultado = App::new(raiz, assuntos, idx).run(&mut terminal);
+    let mut app = App::new(raiz, assuntos, idx, paineis);
+    app.mensagem = aviso;
+    let resultado = app.run(&mut terminal);
     ratatui::restore();
+    if let Some(p) = &app.paineis {
+        p.fechar();
+    }
     match resultado {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
