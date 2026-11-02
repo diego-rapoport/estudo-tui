@@ -9,6 +9,7 @@ mod ui;
 
 use std::env;
 use std::ffi::OsString;
+use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -175,27 +176,48 @@ fn main() -> ExitCode {
         return ir_para_a_sessao(&raiz, &assuntos[idx].nome, aba.unwrap_or(Aba::Trilha), &comandos, &abrir);
     }
 
-    let paineis = Paineis::nesta_janela(&raiz, comandos.clone());
+    // Sem terminal (rodado por um script, ou pela IA de dentro do professor), a TUI não teria
+    // onde desenhar: sai antes de mexer nos painéis do tmux.
+    if !io::stdout().is_terminal() {
+        eprintln!("o estudando precisa de um terminal (a saída não é um terminal)");
+        return ExitCode::FAILURE;
+    }
+    let mut terminal = match ratatui::try_init() {
+        Ok(t) => t,
+        Err(e) => {
+            ratatui::restore();
+            eprintln!("não consegui abrir o terminal: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let (paineis, sem_paineis) = match Paineis::nesta_janela(&raiz, comandos.clone()) {
+        Ok(p) => (Some(p), None),
+        Err(motivo) => (None, Some(motivo)),
+    };
     let mut aviso = None;
-    if let Some(p) = &paineis {
-        for papel in &abrir {
-            if let Err(e) = p.garantir(*papel, &assuntos[idx].nome) {
-                aviso = Some(e.to_string());
+    match &paineis {
+        Some(p) => {
+            for papel in &abrir {
+                if let Err(e) = p.garantir(*papel, &assuntos[idx].nome) {
+                    aviso = Some(e.to_string());
+                }
             }
         }
+        None if !abrir.is_empty() => aviso = sem_paineis.clone(),
+        None => {}
     }
 
-    let mut terminal = ratatui::init();
     let mut app = App::new(raiz, assuntos, idx, paineis);
+    app.sem_paineis = sem_paineis;
     app.mensagem = aviso;
     if let Some(aba) = aba {
         app.aba = aba;
     }
     let resultado = app.run(&mut terminal);
     ratatui::restore();
-    if let Some(p) = &app.paineis {
-        p.fechar();
-    }
+    // Fecha os painéis agora (o Drop também fecharia, mas só no fim do main).
+    drop(app.paineis.take());
     // Apertou i, c ou p fora do tmux: a TUI se muda para uma sessão com o painel pedido.
     if let (Some(papel), Ok(())) = (app.mudar_para_sessao, &resultado) {
         return ir_para_a_sessao(&app.raiz, &app.assuntos[app.idx].nome, app.aba, &comandos, &[papel]);

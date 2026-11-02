@@ -98,6 +98,8 @@ pub struct App {
     pub mensagem: Option<String>,
     /// Professor e caderno ao lado, quando a TUI roda dentro do tmux.
     pub paineis: Option<Paineis>,
+    /// Dentro do tmux mas sem painéis: o porquê, para quando o aluno pedir um.
+    pub sem_paineis: Option<String>,
     /// Pediu um painel fora do tmux: ao sair, a TUI reabre numa sessão com ele.
     pub mudar_para_sessao: Option<Papel>,
     assinatura: u64,
@@ -127,6 +129,7 @@ impl App {
             ajuda: false,
             mensagem: None,
             paineis,
+            sem_paineis: None,
             mudar_para_sessao: None,
             sair: false,
         };
@@ -259,7 +262,11 @@ impl App {
     fn tecla(&mut self, k: KeyEvent, terminal: &mut DefaultTerminal) -> io::Result<()> {
         self.mensagem = None;
         let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
+        // Sair na hora, de qualquer tela, matando o professor e o caderno com SIGKILL.
         if ctrl && k.code == KeyCode::Char('c') {
+            if let Some(p) = &self.paineis {
+                p.encerrar();
+            }
             self.sair = true;
             return Ok(());
         }
@@ -346,7 +353,7 @@ impl App {
             self.mudar_para_sessao = Some(papel);
             self.sair = true;
         } else {
-            self.mensagem = Some("não achei o painel do tmux desta TUI ($TMUX_PANE)".into());
+            self.mensagem = self.sem_paineis.clone();
         }
     }
 

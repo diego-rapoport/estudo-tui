@@ -114,10 +114,18 @@ aparece na TUI na hora.
 | `i` / `c` | vai para o professor / caderno; se o painel não existe ou o programa foi encerrado, abre |
 | `b` | recolhe a TUI numa faixa estreita (com o número de revisões pendentes) para o professor e o caderno ocuparem a largura; `b` de novo ou `Alt+b` de qualquer painel expande |
 | `q` | sai da TUI e fecha os dois painéis |
+| `Ctrl+C` | sai na hora e mata os dois painéis com SIGKILL (mesmo travados) |
 
 Para trocar de painel: `Alt`+setas ou clique. `Alt+z` amplia o painel atual (de novo para
 voltar), e `Ctrl-b d` sai sem fechar; rodar `estudando -s` outra vez volta para a mesma
 sessão, com a conversa intacta. Arrastar a borda redimensiona.
+
+Quando o professor ou o caderno termina (por exemplo, `Ctrl+C` duas vezes no `claude`), o
+foco volta sozinho para a TUI, que se expande se estava recolhida: dali, `q` sai e `i`/`c`
+reabrem. Num painel encerrado, `Ctrl+C` sai de tudo. Nos painéis vivos o `Ctrl+C` continua
+indo para o programa, que precisa dele (interromper o claude, cancelar uma linha no REPL);
+para sair de qualquer painel, mesmo com algo travado, use `Alt+q`. Se a TUI cair, o tmux
+fecha o professor e o caderno junto.
 
 Os comandos e os tamanhos ficam no config (`""` desliga o painel):
 
@@ -133,7 +141,11 @@ altura_caderno = 40
 Fora de um tmux, a sessão roda num servidor tmux próprio (`tmux -L estudando`), com mouse,
 rótulos nos painéis e os atalhos acima, sem mexer no seu `~/.tmux.conf`. Se você já está
 num tmux, ela divide a janela atual e usa os seus atalhos (`Ctrl-b` setas; para expandir a
-TUI recolhida, vá até ela e aperte `b`).
+TUI recolhida, vá até ela e aperte `b`). Lá não há `Alt+q` nem `Ctrl+C` em painel
+encerrado: volte à TUI e use `q` ou `Ctrl+C`.
+
+Rodar o `estudando` de dentro do professor ou do caderno (inclusive pela própria IA) não
+toma os painéis da TUI de fora: a TUI de dentro abre sem painéis, e sem terminal nem abre.
 
 ## "O que estudar agora"
 

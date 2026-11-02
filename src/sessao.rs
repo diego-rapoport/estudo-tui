@@ -5,6 +5,9 @@
 //! então a TUI acha, foca, reabre e fecha os vizinhos só conversando com o tmux. Fora de um
 //! tmux, `estudando --sessao` cria um servidor próprio (`tmux -L estudando`), para que as
 //! opções e atalhos daqui não vazem para o tmux do usuário.
+//!
+//! A vida dos painéis segue a da TUI: `q` fecha os dois, Ctrl+C os mata com SIGKILL, e hooks
+//! do tmux cobrem o que a TUI não vê (ela cair, ou o programa de um painel terminar).
 
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -24,6 +27,10 @@ const MARCA: &str = "@estudando";
 const TITULO: &str = "@estudando-titulo";
 /// Largura da TUI recolhida: uma faixa que ainda dá para clicar.
 pub const RECOLHIDA: u16 = 3;
+/// Mata com SIGKILL o grupo de processos de cada painel do servidor e derruba o servidor.
+/// Roda pelo `run-shell` do tmux, que expande os formatos (`##` vira `#`).
+const ENCERRAR: &str = "for p in $(tmux -S \"#{socket_path}\" list-panes -a -F \"##{pane_pid}\"); do kill -KILL -- -$p; done \
+                        2>/dev/null; tmux -S \"#{socket_path}\" kill-server";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Papel {
@@ -179,11 +186,13 @@ pub fn abrir_sessao(tui: Vec<OsString>, raiz: &Path, comandos: &Comandos, abrir:
     }
     let t = Tmux { proprio: true };
     if t.rodar(["has-session", "-t", SESSAO]).is_ok() {
-        let marcas = t.rodar(["list-panes", "-s", "-t", SESSAO, "-F", &format!("#{{{MARCA}}}")]).unwrap_or_default();
-        if marcas.lines().any(|m| m == "tui") {
+        let marcas = t
+            .rodar(["list-panes", "-s", "-t", SESSAO, "-F", &format!("#{{{MARCA}}}\t#{{pane_dead}}")])
+            .unwrap_or_default();
+        if marcas.lines().any(|m| m == "tui\t0") {
             return t.comando(["attach-session", "-t", SESSAO]).exec();
         }
-        // Sobrou de uma sessão cuja TUI caiu: recomeça do zero.
+        // Sobrou de uma sessão cuja TUI caiu (ou só restou um painel morto): recomeça do zero.
         let _ = t.rodar(["kill-session", "-t", SESSAO]);
     }
 
@@ -220,11 +229,11 @@ fn opcoes_do_servidor(tui: &str) -> Vec<String> {
         &["set", "-g", "window-status-format", ""],
         &["set", "-g", "window-status-current-format", ""],
         &["set", "-g", "status-right-length", "120"],
-        &["set", "-g", "status-right", " Alt+setas ou clique: trocar de painel · Alt+b: recolher a TUI · Alt+z: ampliar · Ctrl-b d: sair sem fechar "],
+        &["set", "-g", "status-right", " Alt+setas: trocar de painel · Alt+b: recolher a TUI · Alt+z: ampliar · Alt+q: sair de tudo · Ctrl-b d: sair sem fechar "],
         &["set", "-g", "pane-border-status", "top"],
         &["set", "-g", "pane-border-format", " #{?@estudando-titulo,#{@estudando-titulo},#{pane_title}} "],
         &["set", "-g", "pane-active-border-style", "fg=cyan"],
-        &["set", "-g", "remain-on-exit-format", " encerrado: na TUI, aperte i (professor) ou c (caderno) para reabrir "],
+        &["set", "-g", "remain-on-exit-format", " encerrado: na TUI, i ou c reabre e q sai · aqui, Ctrl+C sai de tudo "],
         &["bind", "-n", "M-Left", "select-pane", "-L"],
         &["bind", "-n", "M-Right", "select-pane", "-R"],
         &["bind", "-n", "M-Up", "select-pane", "-U"],
@@ -232,6 +241,20 @@ fn opcoes_do_servidor(tui: &str) -> Vec<String> {
         &["bind", "-n", "M-z", "resize-pane", "-Z"],
         // De qualquer painel: a própria TUI recolhe ou expande (tecla b).
         &["bind", "-n", "M-b", "send-keys", "-t", tui, "b"],
+        // Saída garantida, mesmo com a TUI travada ou morta.
+        &["bind", "-n", "M-q", "run-shell", ENCERRAR],
+        // Ctrl+C continua indo para o claude e o caderno, que precisam dele. Num painel
+        // encerrado, ou na TUI (fora do editor do `o`), mata tudo.
+        &[
+            "bind",
+            "-n",
+            "C-c",
+            "if",
+            "-F",
+            "#{||:#{pane_dead},#{&&:#{==:#{@estudando},tui},#{==:#{pane_current_command},estudando}}}",
+            &format!("run-shell '{ENCERRAR}'"),
+            "send-keys C-c",
+        ],
     ]
     .iter()
     .map(|o| o.iter().map(|s| s.to_string()).collect())
@@ -261,14 +284,30 @@ pub enum Aberto {
 }
 
 impl Paineis {
-    /// Só existe dentro do tmux. Marca o painel atual como o da TUI.
-    pub fn nesta_janela(raiz: &Path, comandos: Comandos) -> Option<Paineis> {
-        env::var_os("TMUX")?;
-        let tui = env::var("TMUX_PANE").ok()?;
+    /// Só existe dentro do tmux. Marca o painel atual como o da TUI, a menos que ele já seja o
+    /// professor ou o caderno de outra TUI (alguém rodou `estudando` lá dentro) ou que a janela
+    /// já tenha uma TUI viva: tomar a marca deixaria os painéis dela órfãos. O erro diz o porquê.
+    pub fn nesta_janela(raiz: &Path, comandos: Comandos) -> Result<Paineis, String> {
+        let sem_tmux = || "não achei o painel do tmux desta TUI ($TMUX_PANE)".to_string();
+        env::var_os("TMUX").ok_or_else(sem_tmux)?;
+        let tui = env::var("TMUX_PANE").map_err(|_| sem_tmux())?;
         let tmux = Tmux { proprio: false };
-        tmux.rodar(["set", "-p", "-t", &tui, MARCA, "tui", ";", "set", "-p", "-t", &tui, TITULO, "estudando"]).ok()?;
+        let lista = tmux
+            .rodar(["list-panes", "-t", &tui, "-F", &format!("#{{pane_id}}\t#{{{MARCA}}}\t#{{pane_dead}}")])
+            .map_err(|e| e.to_string())?;
+        let paineis: Vec<Vec<&str>> = lista.lines().map(|l| l.split('\t').collect()).collect();
+        if let Some(marca) = paineis.iter().find(|c| c[0] == tui).map(|c| c[1])
+            && Papel::de_nome(marca).is_some()
+        {
+            return Err(format!("este painel é o {marca} de outra TUI; os painéis ficam com ela"));
+        }
+        if let Some(c) = paineis.iter().find(|c| c[0] != tui && c[1] == "tui" && c[2] != "1") {
+            return Err(format!("esta janela já tem uma TUI com painéis (painel {})", c[0]));
+        }
+        tmux.rodar(["set", "-p", "-t", &tui, MARCA, "tui", ";", "set", "-p", "-t", &tui, TITULO, "estudando"])
+            .map_err(|e| e.to_string())?;
         let raiz = raiz.canonicalize().unwrap_or_else(|_| raiz.to_path_buf());
-        Some(Paineis { tmux, tui, raiz, comandos, tamanhos: Tamanhos::do_config() })
+        Ok(Paineis { tmux, tui, raiz, comandos, tamanhos: Tamanhos::do_config() })
     }
 
     /// (id, vivo) do painel com esse papel nesta janela.
@@ -332,8 +371,21 @@ impl Paineis {
         for opcao in [["remain-on-exit", "on"], [MARCA, papel.nome()], [TITULO, &titulo]] {
             args.extend([";".into(), "set".into(), "-p".into(), opcao[0].into(), opcao[1].into()]);
         }
+        // Quando o programa termina com o foco nele, o foco volta para a TUI (expandida, se
+        // estava recolhida), onde q sai e i/c reabrem; senão o aluno fica num painel morto.
+        let tui = &self.tui;
+        let expandir = format!("resize-pane -t {tui} -x {}%", self.tamanhos.tui);
+        let ao_morrer = format!(
+            "if -F '#{{pane_active}}' \"select-pane -t {tui} ; if -F -t {tui} '#{{<=:#{{pane_width}},{}}}' '{expandir}'\"",
+            RECOLHIDA + 1
+        );
+        args.extend([";".into(), "set-hook".into(), "-p".into(), "pane-died".into(), ao_morrer]);
         args.extend([";".into(), "select-pane".into(), "-t".into(), self.tui.clone()]);
         let id = self.tmux.rodar(&args)?;
+        // Se a TUI cair sem fechar os painéis, o tmux fecha (senão o professor ocupa a janela
+        // toda). Um índice por papel, para que um painel já fechado não impeça o outro.
+        let hook = format!("pane-exited[{}]", papel as u8);
+        self.tmux.rodar(["set-hook", "-p", "-t", &self.tui, &hook, &format!("kill-pane -t {id}")])?;
         Ok(Aberto::Novo(id))
     }
 
@@ -372,14 +424,39 @@ impl Paineis {
         Ok(true)
     }
 
-    /// Fecha os painéis abertos pela TUI (ao sair dela).
+    /// Fecha os painéis abertos pela TUI (ao sair dela). O programa de cada um recebe SIGHUP.
     pub fn fechar(&self) {
         for papel in [Papel::Professor, Papel::Caderno] {
             if let Some((id, _)) = self.achar(papel) {
                 let _ = self.tmux.rodar(["kill-pane", "-t", &id]);
             }
         }
-        let _ = self.tmux.rodar(["set", "-p", "-u", "-t", &self.tui, MARCA, ";", "set", "-p", "-u", "-t", &self.tui, TITULO]);
+        let tui = &self.tui;
+        let _ = self.tmux.rodar([
+            "set", "-p", "-u", "-t", tui, MARCA, ";", "set", "-p", "-u", "-t", tui, TITULO, ";", "set-hook", "-p",
+            "-u", "-t", tui, "pane-exited",
+        ]);
+    }
+
+    /// Ctrl+C: mata com SIGKILL o grupo de processos de cada painel (o programa e o que ele
+    /// abriu), para sair mesmo com um deles travado ou ignorando o SIGHUP, e depois fecha.
+    pub fn encerrar(&self) {
+        for papel in [Papel::Professor, Papel::Caderno] {
+            let Some((id, true)) = self.achar(papel) else { continue };
+            if let Ok(pid) = self.tmux.rodar(["display", "-p", "-t", &id, "#{pane_pid}"])
+                && !pid.is_empty()
+            {
+                let _ = Command::new("kill").args(["-KILL", "--", &format!("-{pid}")]).output();
+            }
+        }
+        self.fechar();
+    }
+}
+
+/// Se a TUI sair por um pânico, o desenrolar da pilha ainda fecha os painéis.
+impl Drop for Paineis {
+    fn drop(&mut self) {
+        self.fechar();
     }
 }
 

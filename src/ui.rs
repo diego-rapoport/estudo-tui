@@ -1124,7 +1124,7 @@ fn desenhar_rodape(f: &mut Frame, app: &App, area: Rect) {
 
 fn desenhar_ajuda(f: &mut Frame, paineis: bool) {
     let area = f.area();
-    let (w, h) = (62.min(area.width), if paineis { 31 } else { 27 }.min(area.height));
+    let (w, h) = (62.min(area.width), if paineis { 33 } else { 28 }.min(area.height));
     let caixa = Rect::new(area.x + (area.width - w) / 2, area.y + (area.height - h) / 2, w, h);
     let tecla = |t: &str, d: &str| {
         Line::from(vec![Span::styled(format!("  {t:<14}"), negrito(ACENTO)), Span::raw(d.to_string())])
@@ -1144,6 +1144,7 @@ fn desenhar_ajuda(f: &mut Frame, paineis: bool) {
         tecla("r", "recarregar (também é automático)"),
         tecla("Esc", "fechar"),
         tecla("q", if paineis { "sair (fecha também o professor e o caderno)" } else { "sair" }),
+        tecla("Ctrl+C", if paineis { "sair na hora (mata os painéis com SIGKILL)" } else { "sair na hora" }),
         Line::default(),
         legenda("● vencida", Color::Red, "revisão atrasada"),
         legenda("● hoje", Color::Yellow, "revisar hoje"),
@@ -1163,10 +1164,11 @@ fn desenhar_ajuda(f: &mut Frame, paineis: bool) {
             tecla("Alt+setas", "trocar de painel (no seu tmux: Ctrl-b setas)"),
             tecla("b / Alt+b", "recolher / expandir esta TUI"),
             tecla("Alt+z", "ampliar o painel atual (de novo para voltar)"),
+            tecla("Alt+q", "sair de tudo, de qualquer painel (sessão própria)"),
         ];
-        linhas.splice(11..11, extra);
+        linhas.splice(12..12, extra);
     } else {
-        linhas.insert(11, tecla("i / c / p", "abrir o professor / o caderno ao lado (tmux)"));
+        linhas.insert(12, tecla("i / c / p", "abrir o professor / o caderno ao lado (tmux)"));
     }
     f.render_widget(Clear, caixa);
     f.render_widget(Paragraph::new(linhas).wrap(Wrap { trim: false }).block(bloco("Ajuda")), caixa);
