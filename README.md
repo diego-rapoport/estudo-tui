@@ -9,7 +9,7 @@ Duas peças que trabalham juntas:
   revisões, exercícios, pendências e o que estudar a seguir. Ele só lê; quem escreve é a
   skill (ou você, pelo editor).
 
-![Aba Trilha do estudando: módulos do mapa com nível e situação da revisão de cada conceito, painel lateral com o resumo do dia e o progresso, e o quadro "O que estudar agora"](docs/screenshots/trilha.png)
+![Sessão do estudando com os três painéis: à esquerda a aba Trilha (módulos do mapa com nível e situação da revisão, resumo do dia, progresso e "O que estudar agora"); à direita, em cima, o professor (Claude) explicando taxa média e rate() do Prometheus com um exercício; embaixo, o caderno (node) com as contas de taxa média](docs/screenshots/trilha.png)
 
 ## Instalar
 
@@ -76,9 +76,9 @@ assume a partir daí.
 | 6 Perfil | o `_perfil.md` (objetivo, diagnóstico, diário) |
 | 7 Referências | o `_referencias.md` |
 
-![Aba Revisões: conceitos ordenados por urgência, com nível, última e próxima revisão, intervalo e situação, e o histórico de revisões do conceito selecionado](docs/screenshots/revisoes.png)
+![Sessão com a aba Revisões: conceitos ordenados por urgência, com nível, última e próxima revisão, intervalo e situação, e o histórico do conceito selecionado; professor e caderno abertos à direita](docs/screenshots/revisoes.png)
 
-![Aba Pendências: revisões vencidas, equívocos do diagnóstico, perguntas que o professor deixou e notas com seções em branco](docs/screenshots/pendencias.png)
+![Sessão com a aba Pendências: revisões vencidas, equívocos do diagnóstico, perguntas que o professor deixou e notas com seções em branco; professor e caderno abertos à direita](docs/screenshots/pendencias.png)
 
 Atalhos: `j/k` mover, `Enter` abrir conceito, lista ou relatório, `o` abrir o arquivo no
 `$VISUAL`/`$EDITOR`, `Tab`/`1-7` abas, `[`/`]` assunto, `r` recarregar, `?` ajuda, `q` sair.
