@@ -6,11 +6,17 @@ Uso:
   arvore.py relatorio <pasta-do-assunto> [--data AAAA-MM-DD]
   arvore.py revisoes  <pasta-do-assunto> [--data AAAA-MM-DD] [--dias N]
   arvore.py registrar <pasta-do-assunto> <conceito> acertou|parcial|errou [--nivel N] [--data AAAA-MM-DD]
+  arvore.py sessao    <pasta-do-assunto> inicio [--plano "revisao=5,pratica=15"]
+  arvore.py sessao    <pasta-do-assunto> etapa <nome> [--conceito SLUG] [--descontar MIN]
+  arvore.py sessao    <pasta-do-assunto> fim [--descontar MIN]
+  arvore.py progresso <pasta-do-assunto>   # refaz _progresso.md e diz se a expectativa precisa de conversa
+  (sessao e progresso aceitam --data AAAA-MM-DD e --hora HH:MM)
 
 Notas de conceito: arquivos .md com `tipo: conceito` no frontmatter ou dentro de conceitos/.
 """
 import argparse
 import datetime as dt
+import math
 import os
 import re
 import sys
@@ -22,6 +28,16 @@ NIVEIS = {0: "não visto", 1: "reconhece", 2: "em construção", 3: "domina", 4:
 LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]")
 COMENTARIO_RE = re.compile(r"<!--.*?-->", re.S)
 IGNORAR_DIRS = {".obsidian", ".trash", "pesquisa", "exercicios"}
+SESSOES, PROGRESSO = "_sessoes.md", "_progresso.md"
+IGNORAR_ARQUIVOS = {SESSOES, PROGRESSO}  # gerados; os links deles não contam na árvore
+
+# Divisão padrão de uma sessão de estudo (% da meta da sessão), quando o plano não é dado.
+PLANO_PADRAO = {"revisao": 15, "pre-teste": 10, "explicacao": 15, "autoexplicacao": 15, "pratica": 35, "nota": 10}
+TOLERANCIA = 0.20  # diferença relativa abaixo da qual não vale falar de expectativa
+FOLGA_MIN = 5  # ...e diferença absoluta (min) abaixo da qual também não
+ABANDONO_MIN = 120  # etapa aberta há mais que isso: a sessão foi largada sem `fim`
+HORA_RE = re.compile(r"^\d{1,2}:\d{2}$")
+SESSAO_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})\s*$", re.M)
 
 
 def ler_frontmatter(texto):
@@ -88,7 +104,7 @@ def carregar(pasta):
     notas, todas = {}, {}
     for path in sorted(pasta.rglob("*.md")):
         rel = path.relative_to(pasta)
-        if any(p in IGNORAR_DIRS for p in rel.parts[:-1]):
+        if any(p in IGNORAR_DIRS for p in rel.parts[:-1]) or str(rel) in IGNORAR_ARQUIVOS:
             continue
         texto = path.read_text(encoding="utf-8")
         meta, corpo = ler_frontmatter(texto)
@@ -284,6 +300,468 @@ def cmd_registrar(args):
     print(f"{slug}: {args.resultado} → próxima revisão em {proxima} (intervalo {novo}d{nivel_txt})")
 
 
+# ---------------------------------------------------------------------------
+# Tempo de estudo: _sessoes.md (registro) e _progresso.md (gráficos, gerado)
+# ---------------------------------------------------------------------------
+
+def minutos_do_dia(hhmm):
+    h, m = hhmm.split(":")
+    return int(h) * 60 + int(m)
+
+
+def fmt_min(m):
+    m = int(round(m))
+    return f"{m // 60} h {m % 60:02d} min" if m >= 60 else f"{m} min"
+
+
+def metas(pasta):
+    """Metas do frontmatter do _perfil.md: meta_semanal_min, meta_sessao_min, estimativa_min_conceito."""
+    perfil = pasta / "_perfil.md"
+    meta = ler_frontmatter(perfil.read_text(encoding="utf-8"))[0] if perfil.is_file() else {}
+    semanal = inteiro(meta.get("meta_semanal_min"))
+    sessao = inteiro(meta.get("meta_sessao_min")) or semanal
+    conceito = inteiro(meta.get("estimativa_min_conceito")) or sessao
+    return {"semanal": semanal, "sessao": sessao, "conceito": conceito}
+
+
+def ler_sessoes(path):
+    """(cabeçalho, sessões). Cada sessão guarda o texto original, para gravar sem tocar no que não mudou."""
+    if not path.is_file():
+        return None, []
+    texto = path.read_text(encoding="utf-8")
+    achados = list(SESSAO_RE.finditer(texto))
+    cabecalho = texto[: achados[0].start()] if achados else texto
+    sessoes = []
+    for i, m in enumerate(achados):
+        fim_bloco = achados[i + 1].start() if i + 1 < len(achados) else len(texto)
+        s = {"data": data(m.group(1)), "hora": m.group(2), "plano": {}, "plano_min": None,
+             "etapas": [], "fim": None, "bruto": texto[m.start():fim_bloco], "mudou": False}
+        for linha in texto[m.end():fim_bloco].splitlines():
+            l = linha.strip()
+            if l.startswith("plano:"):
+                partes = [p.strip() for p in l[6:].split("·")]
+                s["plano_min"] = inteiro(partes[0].split()[0]) if partes[0] else None
+                for p in partes[1:]:
+                    nome, _, valor = p.rpartition(" ")
+                    if nome and inteiro(valor) is not None:
+                        s["plano"][nome] = inteiro(valor)
+            elif l.startswith("fim:"):
+                s["fim"] = l[4:].strip() or None
+            elif l.startswith("|"):
+                cels = [c.strip() for c in l.strip("|").split("|")]
+                if len(cels) < 6 or cels[0] == "etapa" or set(cels[0]) <= set("-: "):
+                    continue
+                etapa, conceito, ini, fim, mins, plano = cels[:6]
+                s["etapas"].append({"etapa": etapa, "conceito": None if conceito in ("", "-") else conceito,
+                                    "inicio": ini, "fim": fim or None, "min": inteiro(mins), "plano": inteiro(plano)})
+        sessoes.append(s)
+    return cabecalho, sessoes
+
+
+def duracao(e):
+    """Minutos de uma etapa: a coluna min (que pode ter sido corrigida à mão) ou fim − início."""
+    if e["min"] is not None:
+        return e["min"]
+    if e["fim"] and HORA_RE.match(e["fim"]) and HORA_RE.match(e["inicio"]):
+        return (minutos_do_dia(e["fim"]) - minutos_do_dia(e["inicio"])) % 1440
+    return 0
+
+
+def total_sessao(s):
+    return sum(duracao(e) for e in s["etapas"])
+
+
+def render_sessao(s):
+    plano = f"plano: {s['plano_min']} min" if s["plano_min"] else "plano: -"
+    plano += "".join(f" · {k} {v}" for k, v in s["plano"].items())
+    linhas = [f"## {s['data']} {s['hora']}", plano, "",
+              "| etapa | conceito | início | fim | min | plano |", "|---|---|---|---|---|---|"]
+    for e in s["etapas"]:
+        mins = "" if e["min"] is None else str(e["min"])
+        plan = "" if e["plano"] is None else str(e["plano"])
+        linhas.append(f"| {e['etapa']} | {e['conceito'] or '-'} | {e['inicio']} | {e['fim'] or ''} | {mins} | {plan} |")
+    if s["fim"]:
+        linhas += ["", f"fim: {s['fim']}"]
+    return "\n".join(linhas) + "\n\n"
+
+
+def gravar_sessoes(path, pasta, cabecalho, sessoes):
+    if cabecalho is None:
+        cabecalho = (f"---\ntipo: sessoes\nassunto: {pasta.name}\n---\n# Sessões — {pasta.name}\n\n"
+                     "Tempo de estudo, etapa a etapa (gravado por `arvore.py sessao`). Pode corrigir a "
+                     "coluna **min** à mão, por exemplo para descontar uma pausa: os totais de "
+                     "`_progresso.md` usam esse valor.\n\n")
+    corpo = "".join(render_sessao(s) if s["mudou"] else s["bruto"] for s in sessoes)
+    gravar_atomico(path, cabecalho + corpo)
+
+
+def fechar_etapa(s, hora, descontar, avisos):
+    if not s["etapas"] or s["etapas"][-1]["fim"]:
+        return
+    e = s["etapas"][-1]
+    bruto = (minutos_do_dia(hora) - minutos_do_dia(e["inicio"])) % 1440
+    e["fim"], e["min"] = hora, max(0, bruto - (descontar or 0))
+    limite = max(30, 3 * (e["plano"] or 0))
+    if e["min"] > limite:
+        avisos.append(f"A etapa '{e['etapa']}' durou {e['min']} min (mais que {limite}). Pode ter havido "
+                      "pausa: pergunte ao aluno e corrija a coluna min em _sessoes.md se for o caso.")
+    s["mudou"] = True
+
+
+def largar_sessao(s, avisos):
+    """Sessão que ficou aberta (sem `fim`): a última etapa conta pelo plano, ou zero."""
+    if s["etapas"] and not s["etapas"][-1]["fim"]:
+        e = s["etapas"][-1]
+        e["fim"], e["min"] = "?", e["plano"] or 0
+    s["fim"] = "não registrado"
+    s["mudou"] = True
+    avisos.append(f"A sessão de {s['data']} {s['hora']} ficou sem `fim`; a última etapa entrou pelo "
+                  "tempo planejado. Corrija a coluna min se souber o tempo real.")
+
+
+def montar_plano(texto, meta_sessao):
+    if texto:
+        plano = {}
+        for item in texto.split(","):
+            nome, _, valor = item.partition("=")
+            if not nome.strip() or inteiro(valor) is None:
+                sys.exit(f"Plano inválido: '{item}'. Use etapa=minutos separados por vírgula.")
+            plano[nome.strip()] = inteiro(valor)
+        return plano, sum(plano.values())
+    if meta_sessao:
+        return {k: max(1, round(meta_sessao * p / 100)) for k, p in PLANO_PADRAO.items()}, meta_sessao
+    return {}, None
+
+
+def nova_sessao(sessoes, dia, hora, plano, plano_min):
+    s = {"data": dia, "hora": hora, "plano": plano, "plano_min": plano_min,
+         "etapas": [], "fim": None, "bruto": "", "mudou": True}
+    sessoes.append(s)
+    return s
+
+
+def sessao_aberta(sessoes, dia, hora, avisos):
+    """A sessão em andamento, ou None. Larga a que ficou aberta em outro dia ou parada há horas."""
+    if not sessoes or sessoes[-1]["fim"]:
+        return None
+    s = sessoes[-1]
+    ultima = s["etapas"][-1] if s["etapas"] else None
+    parada = ultima and not ultima["fim"] and (minutos_do_dia(hora) - minutos_do_dia(ultima["inicio"])) % 1440 > ABANDONO_MIN
+    if s["data"] != dia or parada:
+        largar_sessao(s, avisos)
+        return None
+    return s
+
+
+def cmd_sessao(args):
+    pasta = Path(args.pasta).expanduser()
+    if not pasta.is_dir():
+        sys.exit(f"Pasta do assunto não encontrada: {pasta}")
+    dia = data(args.data) or dt.date.today()
+    hora = args.hora or dt.datetime.now().strftime("%H:%M")
+    if not HORA_RE.match(hora):
+        sys.exit(f"Hora inválida: {hora} (use HH:MM)")
+    path = pasta / SESSOES
+    if path.is_symlink() or (path.exists() and not path.resolve().is_relative_to(pasta.resolve())):
+        sys.exit(f"Recusado: {path} aponta para fora de {pasta}. Nada foi gravado.")
+    cabecalho, sessoes = ler_sessoes(path)
+    m = metas(pasta)
+    avisos = []
+    s = sessao_aberta(sessoes, dia, hora, avisos)
+
+    if args.acao == "inicio":
+        if s:
+            fechar_etapa(s, hora, 0, avisos)
+            s["fim"] = hora
+        plano, plano_min = montar_plano(args.plano, m["sessao"])
+        historico = medias_por_etapa(sessoes)
+        nova_sessao(sessoes, dia, hora, plano, plano_min)
+        gravar_sessoes(path, pasta, cabecalho, sessoes)
+        print(f"Sessão iniciada: {dia} {hora} · plano {fmt_min(plano_min) if plano_min else 'sem meta'}"
+              + "".join(f" · {k} {v}" for k, v in plano.items()))
+        if historico:
+            print("Médias reais por etapa (últimas 5 sessões): "
+                  + " · ".join(f"{k} {v:.0f}" for k, v in historico.items()))
+        if not m["semanal"]:
+            print("Sem meta: grave meta_semanal_min (e meta_sessao_min) no frontmatter do _perfil.md.")
+
+    elif args.acao == "etapa":
+        if not args.nome:
+            sys.exit("Diga o nome da etapa: sessao <pasta> etapa <nome>")
+        if s is None:
+            plano, plano_min = montar_plano(None, m["sessao"])
+            s = nova_sessao(sessoes, dia, hora, plano, plano_min)
+            print(f"(sessão iniciada automaticamente às {hora})")
+        anterior = s["etapas"][-1]["conceito"] if s["etapas"] else None
+        fechar_etapa(s, hora, args.descontar, avisos)
+        conceito = normalizar(args.conceito) if args.conceito else anterior
+        s["etapas"].append({"etapa": args.nome, "conceito": conceito, "inicio": hora, "fim": None,
+                            "min": None, "plano": s["plano"].get(args.nome)})
+        s["mudou"] = True
+        gravar_sessoes(path, pasta, cabecalho, sessoes)
+        feito = sum(duracao(e) for e in s["etapas"][:-1])
+        print(f"Etapa '{args.nome}' ({conceito or 'sem conceito'}) às {hora} · "
+              f"plano da etapa: {s['plano'].get(args.nome, '-')} min · sessão até agora: {fmt_min(feito)}"
+              + (f" de {fmt_min(s['plano_min'])}" if s["plano_min"] else ""))
+
+    else:  # fim
+        if s is None:
+            print("Nenhuma sessão aberta hoje.")
+            for a in avisos:
+                print(f"Aviso: {a}")
+            if avisos:
+                gravar_sessoes(path, pasta, cabecalho, sessoes)
+            return
+        fechar_etapa(s, hora, args.descontar, avisos)
+        s["fim"] = hora
+        gravar_sessoes(path, pasta, cabecalho, sessoes)
+        print(resumo_sessao(s))
+        print()
+        print(texto_expectativa(gerar_progresso(pasta, sessoes, m, dia)))
+    for a in avisos:
+        print(f"Aviso: {a}")
+
+
+def medias_por_etapa(sessoes, n=5):
+    """Minutos médios de cada etapa nas últimas n sessões encerradas: base para um plano realista."""
+    somas = {}
+    for s in [s for s in sessoes if s["fim"]][-n:]:
+        for e in s["etapas"]:
+            somas.setdefault(e["etapa"], []).append(duracao(e))
+    return {k: sum(v) / len(v) for k, v in somas.items()}
+
+
+def semanas_txt(n):
+    return "última semana fechada" if n == 1 else f"últimas {n} semanas fechadas"
+
+
+def resumo_sessao(s):
+    total = total_sessao(s)
+    linhas = [f"# Sessão {s['data']} {s['hora']}–{s['fim']}: {fmt_min(total)}"
+              + (f" (plano {fmt_min(s['plano_min'])})" if s["plano_min"] else "")]
+    linhas.append("| etapa | conceito | min | plano |")
+    for e in s["etapas"]:
+        linhas.append(f"| {e['etapa']} | {e['conceito'] or '-'} | {duracao(e)} | {e['plano'] if e['plano'] is not None else '-'} |")
+    if s["plano_min"]:
+        dif = total - s["plano_min"]
+        passou = sorted(((duracao(e) - e["plano"], e["etapa"]) for e in s["etapas"] if e["plano"] is not None), reverse=True)
+        passou = [f"{n} ({d:+d})" for d, n in passou if d >= FOLGA_MIN]
+        if abs(dif) <= max(FOLGA_MIN, TOLERANCIA * s["plano_min"]):
+            linhas.append(f"Sessão: dentro do plano ({dif:+d} min) → não comentar."
+                          + (f" Só para o próximo plano: {', '.join(passou)}." if passou else ""))
+        else:
+            sentido = "acima" if dif > 0 else "abaixo"
+            linhas.append(f"Sessão: {abs(dif)} min {sentido} do plano ({dif / s['plano_min']:+.0%})."
+                          + (f" Etapas que passaram: {', '.join(passou)}." if passou else "")
+                          + " → ajuste o plano da próxima sessão (sem cobrar o aluno).")
+    return "\n".join(linhas)
+
+
+def segunda(d):
+    return d - dt.timedelta(days=d.weekday())
+
+
+def conceitos_do_mapa(pasta):
+    """Slugs da trilha principal: links sob títulos `## Módulo...` do _mapa.md (ou todos, se não houver)."""
+    mapa = pasta / "_mapa.md"
+    if not mapa.is_file():
+        return []
+    corpo = ler_frontmatter(mapa.read_text(encoding="utf-8"))[1]
+    blocos = re.findall(r"^##\s+M[óo]dulo.*?(?=^##\s|\Z)", corpo, re.M | re.S | re.I)
+    vistos = []
+    for slug in alvos("\n".join(blocos) if blocos else corpo):
+        if slug not in vistos:
+            vistos.append(slug)
+    return vistos
+
+
+def calcular(pasta, sessoes, m, hoje):
+    """Números do progresso: semanas, etapas, conceitos, ritmo da trilha e o veredito da expectativa."""
+    semanas = {}
+    if sessoes:
+        w, fim = segunda(min(s["data"] for s in sessoes)), segunda(hoje)
+        while w <= fim:
+            semanas[w] = 0
+            w += dt.timedelta(days=7)
+    etapas, por_conceito = {}, {}
+    for s in sessoes:
+        if s["data"] <= hoje:
+            semanas[segunda(s["data"])] = semanas.get(segunda(s["data"]), 0) + total_sessao(s)
+        for e in s["etapas"]:
+            d = duracao(e)
+            plan = etapas.setdefault(e["etapa"], {"min": 0, "plano": 0, "vezes": 0})
+            plan["min"] += d
+            plan["plano"] += e["plano"] or 0
+            plan["vezes"] += 1
+            c = por_conceito.setdefault(e["conceito"], {"min": 0, "novo": 0, "etapas": {}, "sessoes": set()})
+            c["min"] += d
+            c["novo"] += 0 if e["etapa"] == "revisao" else d
+            c["etapas"][e["etapa"]] = c["etapas"].get(e["etapa"], 0) + d
+            c["sessoes"].add((s["data"], s["hora"]))
+    atual = semanas.get(segunda(hoje), 0)
+    fechadas = [v for w, v in sorted(semanas.items()) if w < segunda(hoje)][-4:]
+    media = sum(fechadas) / len(fechadas) if fechadas else None
+
+    meta = m["semanal"]
+    if not meta:
+        veredito, motivo = "sem meta", "grave meta_semanal_min no frontmatter do _perfil.md"
+    elif atual >= meta * (1 + TOLERANCIA) and atual - meta > FOLGA_MIN:
+        veredito, motivo = "parabenizar", f"esta semana: {fmt_min(atual)} para meta de {fmt_min(meta)}"
+    elif media is not None and len(fechadas) >= 2 and media >= meta * (1 + TOLERANCIA) and media - meta > FOLGA_MIN:
+        veredito, motivo = "parabenizar", f"média de {fmt_min(media)}/semana para meta de {fmt_min(meta)}"
+    elif media is not None and len(fechadas) >= 2 and media < meta * (1 - TOLERANCIA) and meta - media > FOLGA_MIN:
+        veredito, motivo = "conversar", f"média de {fmt_min(media)}/semana nas últimas {len(fechadas)} semanas, meta de {fmt_min(meta)}"
+    else:
+        veredito = "não comentar"
+        motivo = ("menos de 2 semanas fechadas" if len(fechadas) < 2 and atual < meta * (1 + TOLERANCIA)
+                  else "dentro da tolerância")
+
+    medidos = [c["novo"] for slug, c in por_conceito.items() if slug and c["novo"] > 0]
+    min_conceito = sum(medidos) / len(medidos) if medidos else None
+    niveis = {slug: inteiro(n["meta"].get("nivel")) for slug, n in carregar(pasta)[0].items()}
+    trilha = conceitos_do_mapa(pasta)
+    restantes = [c for c in trilha if (niveis.get(c) or 0) < 3]
+    ritmo = None
+    if min_conceito and (media or meta):
+        por_semana = media if media else meta
+        ritmo = {"restantes": len(restantes), "min_conceito": min_conceito, "medidos": len(medidos),
+                 "semanas": math.ceil(len(restantes) * min_conceito / por_semana) if por_semana else None,
+                 "semanas_plano": math.ceil(len(restantes) * m["conceito"] / meta) if meta and m["conceito"] else None}
+        if (veredito == "não comentar" and m["conceito"] and len(medidos) >= 3
+                and min_conceito > m["conceito"] * (1 + TOLERANCIA) and min_conceito - m["conceito"] > FOLGA_MIN):
+            veredito = "conversar"
+            motivo = (f"cada conceito novo leva {fmt_min(min_conceito)} em média, contra {fmt_min(m['conceito'])} "
+                      f"estimados: a trilha vai levar ~{ritmo['semanas']} semanas, não ~{ritmo['semanas_plano']}")
+    return {"semanas": semanas, "atual": atual, "fechadas": fechadas, "media": media, "meta": m,
+            "veredito": veredito, "motivo": motivo, "etapas": etapas, "por_conceito": por_conceito,
+            "niveis": niveis, "trilha": trilha, "ritmo": ritmo, "sessoes": sessoes, "hoje": hoje}
+
+
+def texto_expectativa(r):
+    linhas = ["# Expectativa"]
+    meta = r["meta"]["semanal"]
+    linhas.append(f"Esta semana: {fmt_min(r['atual'])}" + (f" de {fmt_min(meta)}" if meta else ""))
+    if r["media"] is not None:
+        linhas.append(f"Média semanal ({semanas_txt(len(r['fechadas']))}): {fmt_min(r['media'])}")
+    if r["ritmo"]:
+        rt = r["ritmo"]
+        linhas.append(f"Ritmo: {fmt_min(rt['min_conceito'])} por conceito novo ({rt['medidos']} medidos) · "
+                      f"{rt['restantes']} conceitos da trilha abaixo do nível 3 → ~{rt['semanas']} semanas"
+                      + (f" (no plano: ~{rt['semanas_plano']})" if rt["semanas_plano"] else ""))
+    linhas.append(f"Veredito: {r['veredito'].upper()} ({r['motivo']})")
+    if r["veredito"] == "parabenizar":
+        linhas.append("→ parabenize pelo tempo a mais, de forma específica, e NÃO aumente a meta.")
+    elif r["veredito"] == "conversar":
+        linhas.append("→ proponha um reajuste (meta, plano das sessões ou trilha) e deixe o aluno escolher.")
+    return "\n".join(linhas)
+
+
+def xychart(titulo, rotulos, barras, linha=None, eixo="min"):
+    topo = max(barras + (linha or []) + [10])
+    topo = int(math.ceil(topo * 1.15 / 10) * 10)
+    rot = ", ".join(f'"{r}"' for r in rotulos)
+    out = ["```mermaid", "xychart-beta", f'    title "{titulo}"', f"    x-axis [{rot}]",
+           f'    y-axis "{eixo}" 0 --> {topo}', f"    bar [{', '.join(str(int(round(b))) for b in barras)}]"]
+    if linha:
+        out.append(f"    line [{', '.join(str(int(round(v))) for v in linha)}]")
+    return out + ["```"]
+
+
+def pizza(titulo, fatias):
+    out = ["```mermaid", f"pie title {titulo}" if titulo else "pie"]
+    out += [f'    "{nome}" : {int(round(v))}' for nome, v in fatias if v > 0]
+    return out + ["```"]
+
+
+def gerar_progresso(pasta, sessoes, m, hoje):
+    """Refaz _progresso.md (gráficos mermaid para o Obsidian) e devolve os números calculados."""
+    r = calcular(pasta, sessoes, m, hoje)
+    if not sessoes:
+        return r
+    meta = m["semanal"]
+    total = sum(total_sessao(s) for s in sessoes)
+    planos = [s["plano_min"] for s in sessoes if s["plano_min"]]
+    md = ["---", "tipo: progresso", f"assunto: {pasta.name}", f"atualizado: {hoje}", "---",
+          f"# Progresso — {pasta.name}", "",
+          "> [!info] Gerado por `arvore.py` a partir de `_sessoes.md` a cada fim de sessão. "
+          "Não edite aqui: corrija os minutos em `_sessoes.md`.", "", "## Resumo", "", "| | |", "|---|---|",
+          f"| Sessões | {len(sessoes)} |", f"| Tempo total | {fmt_min(total)} |",
+          f"| Média por sessão | {fmt_min(total / len(sessoes))}"
+          + (f" (plano {fmt_min(sum(planos) / len(planos))})" if planos else "") + " |",
+          f"| Esta semana | {fmt_min(r['atual'])}" + (f" de {fmt_min(meta)}" if meta else "") + " |"]
+    if r["media"] is not None:
+        md.append(f"| Média semanal ({semanas_txt(len(r['fechadas']))}) | {fmt_min(r['media'])} |")
+    if r["ritmo"]:
+        rt = r["ritmo"]
+        md.append(f"| Tempo por conceito novo | {fmt_min(rt['min_conceito'])}"
+                  + (f" (estimado {fmt_min(m['conceito'])})" if m["conceito"] else "") + " |")
+        md.append(f"| Previsão da trilha | {rt['restantes']} conceitos abaixo do nível 3 ≈ {rt['semanas']} semanas"
+                  + (f" (no plano: {rt['semanas_plano']})" if rt["semanas_plano"] else "") + " |")
+    if r["veredito"] == "parabenizar":
+        md += ["", f"> [!success] Acima do combinado: {r['motivo']}. O tempo a mais é bônus: a meta continua a mesma."]
+    elif r["veredito"] == "conversar":
+        md += ["", f"> [!warning] Vale reajustar a expectativa: {r['motivo']}."]
+
+    semanas = sorted(r["semanas"].items())[-12:]
+    md += ["", "## Tempo por semana", ""]
+    md += xychart("Minutos por semana" + (f" (linha = meta de {meta} min)" if meta else ""),
+                  [w.strftime("%d/%m") for w, _ in semanas], [v for _, v in semanas],
+                  [meta] * len(semanas) if meta else None)
+
+    ultimas = sessoes[-15:]
+    md += ["", "## Sessões", ""]
+    md += xychart("Minutos por sessão (linha = plano)", [f"{s['data']:%d/%m} {s['hora']}" for s in ultimas],
+                  [total_sessao(s) for s in ultimas],
+                  [s["plano_min"] or 0 for s in ultimas] if any(s["plano_min"] for s in ultimas) else None)
+    md += ["", "| sessão | conceitos | min | plano | etapas |", "|---|---|---|---|---|"]
+    for s in reversed(sessoes):
+        conceitos = []
+        for e in s["etapas"]:
+            if e["conceito"] and f"[[{e['conceito']}]]" not in conceitos:
+                conceitos.append(f"[[{e['conceito']}]]")
+        etapas = ", ".join(f"{e['etapa']} {duracao(e)}" for e in s["etapas"])
+        md.append(f"| {s['data']} {s['hora']} | {', '.join(conceitos) or '-'} | {total_sessao(s)} | "
+                  f"{s['plano_min'] or '-'} | {etapas or '-'} |")
+
+    md += ["", "## Tempo por etapa", ""]
+    md += pizza("Tempo total por etapa", [(k, v["min"]) for k, v in r["etapas"].items()])
+    md += ["", "| etapa | vezes | média | plano médio | total |", "|---|---|---|---|---|"]
+    for k, v in sorted(r["etapas"].items(), key=lambda kv: -kv[1]["min"]):
+        plano_medio = fmt_min(v["plano"] / v["vezes"]) if v["plano"] else "-"
+        md.append(f"| {k} | {v['vezes']} | {fmt_min(v['min'] / v['vezes'])} | {plano_medio} | {fmt_min(v['min'])} |")
+
+    ordem = [c for c in r["trilha"] if c in r["por_conceito"]]
+    ordem += sorted(c for c in r["por_conceito"] if c and c not in ordem)
+    md += ["", "## Por tópico", "", "Clique num conceito para abrir o detalhe.", ""]
+    if ordem:
+        md += xychart("Minutos por conceito", ordem, [r["por_conceito"][c]["min"] for c in ordem])
+    for c in ordem + ([None] if None in r["por_conceito"] else []):
+        d = r["por_conceito"][c]
+        nome = f"[[{c}]]" if c else "Sem conceito"
+        nivel = f" · nível {r['niveis'][c]}" if c in r["niveis"] and r["niveis"][c] is not None else ""
+        md += ["", f"> [!abstract]- {nome} · {fmt_min(d['min'])}{nivel} · {len(d['sessoes'])} sessão(ões)",
+               "> | etapa | min |", "> |---|---|"]
+        md += [f"> | {k} | {v} |" for k, v in sorted(d["etapas"].items(), key=lambda kv: -kv[1])]
+        if len([v for v in d["etapas"].values() if v > 0]) > 1:
+            md += [">"] + [f"> {l}" for l in pizza("", sorted(d["etapas"].items(), key=lambda kv: -kv[1]))]
+    destino = pasta / PROGRESSO
+    if destino.is_symlink():
+        sys.exit(f"Recusado: {destino} é um link. Nada foi gravado.")
+    gravar_atomico(destino, "\n".join(md) + "\n")
+    return r
+
+
+def cmd_progresso(args):
+    pasta = Path(args.pasta).expanduser()
+    _, sessoes = ler_sessoes(pasta / SESSOES)
+    if not sessoes:
+        print(f"Nenhuma sessão registrada em {pasta / SESSOES}.")
+        return
+    hoje = data(args.data) or dt.date.today()
+    print(texto_expectativa(gerar_progresso(pasta, sessoes, metas(pasta), hoje)))
+    print(f"\nGráficos em {pasta / PROGRESSO}")
+
+
 def arquivo_config():
     """Mesmo arquivo que a TUI `estudando` lê: $XDG_CONFIG_HOME/estudando/config.toml."""
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
@@ -434,6 +912,20 @@ def main():
     g.add_argument("--nivel", type=int, choices=range(5))
     g.add_argument("--data")
     g.set_defaults(func=cmd_registrar)
+    s = sub.add_parser("sessao")
+    s.add_argument("pasta")
+    s.add_argument("acao", choices=["inicio", "etapa", "fim"])
+    s.add_argument("nome", nargs="?", help="nome da etapa (revisao, pre-teste, explicacao, autoexplicacao, pratica, nota...)")
+    s.add_argument("--conceito")
+    s.add_argument("--plano", help='minutos por etapa: "revisao=5,pratica=15"')
+    s.add_argument("--descontar", type=int, default=0, metavar="MIN", help="minutos de pausa a tirar da etapa que fecha")
+    s.add_argument("--data")
+    s.add_argument("--hora")
+    s.set_defaults(func=cmd_sessao)
+    pr = sub.add_parser("progresso")
+    pr.add_argument("pasta")
+    pr.add_argument("--data")
+    pr.set_defaults(func=cmd_progresso)
     args = p.parse_args()
     args.func(args)
 

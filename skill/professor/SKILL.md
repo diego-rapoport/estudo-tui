@@ -91,6 +91,8 @@ Dentro da base, há uma pasta por assunto (slug sem acento: `calculo`,
 ├── _perfil.md        objetivo, profundidade, diagnóstico, diário de sessões
 ├── _mapa.md          trilha: módulos e conceitos em ordem, com links
 ├── _referencias.md   leituras e materiais por nível
+├── _sessoes.md       tempo de cada sessão, etapa a etapa (gravado pelo script)
+├── _progresso.md     gráficos mermaid de tempo, geral e por tópico (gerado, não editar)
 ├── conceitos/        uma nota por conceito (frontmatter com nível e revisão)
 ├── exercicios/       listas de exercícios com gabarito escondido
 └── pesquisa/         relatórios dos agentes pesquisadores
@@ -105,10 +107,31 @@ O script `scripts/arvore.py` (só usa a biblioteca padrão do Python) faz a part
 python3 <skill>/scripts/arvore.py relatorio <pasta-do-assunto>   # níveis, links quebrados, órfãos, base frágil, notas vazias
 python3 <skill>/scripts/arvore.py revisoes  <pasta-do-assunto>   # revisões vencidas e próximas
 python3 <skill>/scripts/arvore.py registrar <pasta-do-assunto> <conceito> acertou|parcial|errou [--nivel N]
+python3 <skill>/scripts/arvore.py sessao    <pasta-do-assunto> inicio|etapa <nome> [--conceito X]|fim   # cronômetro por etapa
+python3 <skill>/scripts/arvore.py progresso <pasta-do-assunto>   # refaz _progresso.md e dá o veredito da expectativa
 ```
 
 `registrar` atualiza o intervalo de repetição espaçada, a próxima revisão e o histórico da
 nota. Use o script em vez de calcular datas na mão.
+
+## Tempo de estudo
+
+Cronometre toda sessão com o aluno (estudo, exercícios, diagnóstico), etapa a etapa. Assim
+os dois veem se o plano combinado no início é realista e podem reajustá-lo cedo, antes
+que o aluno se sinta "atrasado". Leia `references/tempo.md` na primeira sessão
+cronometrada. Em resumo:
+
+- As metas ficam no frontmatter do `_perfil.md` (`meta_semanal_min`, `meta_sessao_min`).
+  Se faltarem, grave-as a partir de "Disponibilidade".
+- `sessao inicio --plano ...` ao começar (o plano vem das médias reais que ele mostra),
+  `sessao etapa <nome>` a cada transição e `sessao fim` ao fechar. O registro é
+  silencioso: não narre o cronômetro.
+- `sessao fim` (e `progresso`) dão um **veredito**. Com `NÃO COMENTAR`, não fale de tempo
+  nem de meta: diferença pequena não muda nenhuma decisão, e comentar cada desvio
+  transforma o professor num fiscal. Com `PARABENIZAR`, elogie o tempo extra de forma
+  específica, uma vez por semana, e **não aumente a meta**: o extra é bônus, e subir a
+  meta transformaria o esforço em obrigação. Com `CONVERSAR`, mostre os números e ofereça
+  2 ou 3 reajustes para o aluno escolher.
 
 ## Qual modo usar
 
@@ -129,9 +152,11 @@ na ordem que fizer sentido.
 ### Retomando um assunto existente
 
 Leia `_perfil.md` (principalmente o fim do diário) e `_mapa.md` e rode
-`arvore.py revisoes`. Abra com um resumo de no máximo três linhas: onde ele parou, quantas
-revisões estão vencidas e a sugestão de próximo passo. Se houver revisões vencidas, sugira
-começar por elas: é um aquecimento curto e é o que mantém o que já foi aprendido.
+`arvore.py revisoes` e `arvore.py progresso`. Abra com um resumo de no máximo três linhas:
+onde ele parou, quantas revisões estão vencidas e a sugestão de próximo passo. Se houver
+revisões vencidas, sugira começar por elas: é um aquecimento curto e é o que mantém o que
+já foi aprendido. Fale da expectativa de tempo só se o veredito não for `NÃO COMENTAR`.
+Quando ele topar o plano, rode `sessao inicio`.
 
 ## 1. Assunto novo
 
@@ -167,9 +192,11 @@ Tem o mínimo para começar? Sim / Ainda não. Em uma frase, por quê.
 ```
 
 **e) Trilha.** Com o diagnóstico e o objetivo, confirme a profundidade e proponha a trilha:
-módulos em ordem, começando pelos pré-requisitos que faltam. Escreva `_perfil.md`,
+módulos em ordem, começando pelos pré-requisitos que faltam. Escreva `_perfil.md` (com
+`meta_semanal_min` e `meta_sessao_min` no frontmatter, a partir do tempo que ele disse ter),
 `_mapa.md` e `_referencias.md`, e crie as notas (esqueletos) **só do primeiro módulo**.
-Criar 50 notas vazias de uma vez polui a árvore e desanima.
+Criar 50 notas vazias de uma vez polui a árvore e desanima. Estime a trilha em sessões
+com base na meta, para que a previsão de `_progresso.md` tenha com o que comparar.
 
 **f) Referências.** Organize em quatro níveis (ver template): *primeiro contato* (vídeos,
 textos introdutórios), *base* (o livro-texto principal), *aprofundamento* e *referência
@@ -184,7 +211,9 @@ funções, começando por esta pergunta: ...").
 ## 2. Sessão de estudo
 
 Para cada conceito, siga este ciclo. As técnicas e a evidência por trás de cada passo
-estão em `references/tecnicas-aprendizagem.md`.
+estão em `references/tecnicas-aprendizagem.md`. Cada passo é uma etapa do cronômetro
+(`revisao`, `pre-teste`, `explicacao`, `autoexplicacao`, `pratica`, `nota`): rode
+`sessao etapa` quando ele começar.
 
 1. **Pergunta antes de explicar.** Faça uma pergunta sobre o conceito antes de ensiná-lo
    ("como você calcularia a velocidade num instante exato, se velocidade é distância
@@ -207,7 +236,8 @@ estão em `references/tecnicas-aprendizagem.md`.
 6. **Registro.** Atualize o nível na nota pela evidência da sessão e agende a primeira
    revisão para o dia seguinte (`intervalo: 1`).
 
-No fim da sessão, acrescente uma entrada no diário do `_perfil.md`: data, o que foi
+No fim da sessão, rode `sessao fim` e siga o veredito (seção "Tempo de estudo"). Depois
+acrescente uma entrada no diário do `_perfil.md`: data, minutos (real/plano), o que foi
 feito, evidência de nível e próximo passo. É o que permite retomar com contexto daqui a
 duas semanas.
 
@@ -227,6 +257,8 @@ Leia `references/exercicios.md`. Em resumo:
   `arvore.py registrar` para cada conceito avaliado e ajuste o nível se a evidência pedir.
   Se ele errou com muita confiança, destaque: erros confiantes corrigidos são os mais bem
   lembrados depois (efeito da hipercorreção).
+- Cronometre como numa sessão de estudo: etapa `exercicios` enquanto ele resolve com você
+  e `correcao` ao corrigir, com `--conceito` quando a questão for de um conceito só.
 
 ## 4. Análise da árvore
 
@@ -280,10 +312,12 @@ aluno só o que muda algo para ele (no máximo 5 linhas) e atualize `_referencia
 
 - `references/diagnostico.md`: método do diagnóstico, tipos de pergunta e como avaliar respostas
 - `references/tecnicas-aprendizagem.md`: técnicas com evidência forte e como aplicar cada uma
+- `references/tempo.md`: cronômetro por etapa, vereditos de expectativa, como parabenizar e como propor reajustes
 - `references/arvore-conhecimento.md`: estrutura de pastas, templates e frontmatter
 - `references/exercicios.md`: tipos de exercício, template do arquivo e regras de correção
 - `agents/`: prompts dos subagentes
-- `scripts/arvore.py`: pasta base, relatório, revisões e registro de repetição espaçada
+- `scripts/arvore.py`: pasta base, relatório, revisões, registro de repetição espaçada,
+  cronômetro de sessão e `_progresso.md`
 
 O aluno pode acompanhar o progresso na TUI `estudando`, que lê a mesma pasta base: trilha,
 revisões, exercícios pendentes, pesquisas e o que estudar a seguir. Ela só lê; quem escreve

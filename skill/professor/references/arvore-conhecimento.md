@@ -75,6 +75,8 @@ Regras:
 tipo: perfil
 assunto: calculo
 criado: 2026-10-29
+meta_semanal_min: 60
+meta_sessao_min: 30
 ---
 # Perfil — Cálculo
 
@@ -98,7 +100,26 @@ Equívocos encontrados: ...
 - **2026-10-29**: diagnóstico; ponto de partida = funções (nível 2). Próximo: composição de funções.
 ```
 
-O diário é a memória entre sessões: uma ou duas linhas por sessão, sempre com o "Próximo".
+O diário é a memória entre sessões: uma ou duas linhas por sessão, sempre com o "Próximo"
+e os minutos da sessão (real/plano).
+
+As metas do frontmatter (`meta_semanal_min`, `meta_sessao_min` e, opcional,
+`estimativa_min_conceito`) são o que `arvore.py sessao`/`progresso` usam para comparar o
+tempo real com o combinado. Mude-as só quando o aluno decidir, nunca porque ele estudou a
+mais (ver `references/tempo.md`).
+
+## `_sessoes.md` e `_progresso.md`
+
+Os dois são escritos pelo script (`arvore.py sessao`, `arvore.py progresso`), não à mão:
+
+- `_sessoes.md`: uma seção `## AAAA-MM-DD HH:MM` por sessão, com uma linha `plano:` e uma
+  tabela `| etapa | conceito | início | fim | min | plano |`. A coluna `min` pode ser
+  corrigida à mão (pausas), e os totais usam esse valor.
+- `_progresso.md`: gerado de novo a cada `sessao fim`. Traz um resumo, gráficos mermaid
+  (`xychart-beta` por semana e por sessão, `pie` por etapa) e a seção **Por tópico**, com
+  um gráfico de minutos por conceito e um callout recolhido por conceito.
+
+Os links desses dois arquivos não contam no `relatorio` (órfãs, citados sem nota).
 
 ## `_mapa.md`
 

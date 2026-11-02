@@ -51,6 +51,10 @@ python3 skill/professor/scripts/arvore.py base [--definir CAMINHO]   # o mesmo, 
 Dentro da pasta base fica uma pasta por assunto (`calculo/`, com `_mapa.md`, `_perfil.md`,
 `conceitos/`, `exercicios/`, `pesquisa/`). Ela pode ser aberta como vault do Obsidian.
 
+O professor cronometra cada sessão, etapa a etapa, em `_sessoes.md` e gera
+`_progresso.md`, com gráficos mermaid do tempo por semana, por sessão, por etapa e por
+tópico, comparados com a meta do `_perfil.md`. Abra no Obsidian para ver os gráficos.
+
 ## Usar
 
 ```sh
