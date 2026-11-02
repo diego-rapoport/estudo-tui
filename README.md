@@ -76,6 +76,10 @@ assume a partir daí.
 | 6 Perfil | o `_perfil.md` (objetivo, diagnóstico, diário) |
 | 7 Referências | o `_referencias.md` |
 
+![Aba Revisões: conceitos ordenados por urgência, com nível, última e próxima revisão, intervalo e situação, e o histórico de revisões do conceito selecionado](docs/screenshots/revisoes.png)
+
+![Aba Pendências: revisões vencidas, equívocos do diagnóstico, perguntas que o professor deixou e notas com seções em branco](docs/screenshots/pendencias.png)
+
 Atalhos: `j/k` mover, `Enter` abrir conceito, lista ou relatório, `o` abrir o arquivo no
 `$VISUAL`/`$EDITOR`, `Tab`/`1-7` abas, `[`/`]` assunto, `r` recarregar, `?` ajuda, `q` sair.
 As notas são recarregadas sozinhas quando mudam no disco.
