@@ -521,7 +521,7 @@ def cmd_sessao(args):
         print(resumo_sessao(s))
         print()
         print(texto_expectativa(gerar_progresso(pasta, sessoes, m, dia)))
-        _, dias = ler_respostas(pasta / RESPOSTAS)
+        _, dias, _ = ler_respostas(pasta / RESPOSTAS)
         grupos = [g for g in por_sessao(pasta, {str(dia): dias.get(str(dia), [])}) if g[0] == f"{dia} {s['hora']}"]
         if grupos and grupos[0][1]:
             print()
@@ -786,15 +786,16 @@ CABECALHO_RESPOSTAS = "| hora | conceito | resultado | previsto | sinal | nota |
 
 
 def ler_respostas(path):
-    """(cabeçalho, {dia: [resposta, ...]}) na ordem do arquivo."""
+    """(cabeçalho, {dia: [resposta, ...]}, {dia: texto original}) na ordem do arquivo."""
     if not path.is_file():
-        return None, {}
+        return None, {}, {}
     texto = path.read_text(encoding="utf-8")
     achados = list(DIA_RE.finditer(texto))
     cabecalho = texto[: achados[0].start()] if achados else texto
-    dias = {}
+    dias, brutos = {}, {}
     for i, m in enumerate(achados):
         fim_bloco = achados[i + 1].start() if i + 1 < len(achados) else len(texto)
+        brutos[m.group(1)] = brutos.get(m.group(1), "") + texto[m.start():fim_bloco]
         linhas = dias.setdefault(m.group(1), [])
         for linha in texto[m.end():fim_bloco].splitlines():
             l = linha.strip()
@@ -807,10 +808,11 @@ def ler_respostas(path):
             linhas.append({"hora": hora, "conceito": None if conceito in ("", "-") else conceito,
                            "resultado": resultado, "previsto": None if previsto in ("", "-") else previsto,
                            "sinais": [x for x in re.split(r"[,\s]+", sinal) if x and x != "-"], "nota": nota})
-    return cabecalho, dias
+    return cabecalho, dias, brutos
 
 
-def gravar_respostas(path, pasta, cabecalho, dias):
+def gravar_respostas(path, pasta, cabecalho, dias, brutos, mudou):
+    """Regrava só o dia `mudou`; os outros dias ficam com o texto original (notas à mão incluídas)."""
     if cabecalho is None:
         cabecalho = (f"---\ntipo: respostas\nassunto: {pasta.name}\n---\n# Respostas — {pasta.name}\n\n"
                      "Cada resposta do aluno a uma pergunta ou problema, classificada pelo professor "
@@ -819,6 +821,9 @@ def gravar_respostas(path, pasta, cabecalho, dias):
                      "perdido (não sabe por onde começar).\n\n")
     corpo = ""
     for dia in sorted(dias):
+        if dia != mudou and dia in brutos:
+            corpo += brutos[dia] if brutos[dia].endswith("\n\n") else brutos[dia].rstrip("\n") + "\n\n"
+            continue
         corpo += f"## {dia}\n\n{CABECALHO_RESPOSTAS}\n|---|---|---|---|---|---|\n"
         for r in dias[dia]:
             corpo += (f"| {r['hora']} | {r['conceito'] or '-'} | {r['resultado']} | {r['previsto'] or '-'} | "
@@ -840,9 +845,13 @@ def cmd_resposta(args):
         sys.exit(f"Pasta do assunto não encontrada: {pasta}")
     dia = str(data(args.data) or dt.date.today())
     hora = args.hora or dt.datetime.now().strftime("%H:%M")
+    if not HORA_RE.match(hora):
+        sys.exit(f"Hora inválida: {hora} (use HH:MM)")
     path = caminho_respostas(pasta)
-    cabecalho, dias = ler_respostas(path)
+    cabecalho, dias, brutos = ler_respostas(path)
     conceito = normalizar(args.conceito) if args.conceito else None
+    if conceito and not re.fullmatch(r"[\w.-]+", conceito):
+        sys.exit(f"Conceito inválido: {conceito} (use o slug da nota, ex.: derivada-num-ponto)")
     if conceito is None:  # herda o conceito da etapa aberta do cronômetro, se houver
         _, sessoes = ler_sessoes(pasta / SESSOES)
         if sessoes and not sessoes[-1]["fim"] and str(sessoes[-1]["data"]) == dia and sessoes[-1]["etapas"]:
@@ -850,7 +859,7 @@ def cmd_resposta(args):
     nota = " ".join((args.nota or "").replace("|", "/").split())
     dias.setdefault(dia, []).append({"hora": hora, "conceito": conceito, "resultado": args.resultado,
                                      "previsto": args.previsto, "sinais": args.sinal or [], "nota": nota})
-    gravar_respostas(path, pasta, cabecalho, dias)
+    gravar_respostas(path, pasta, cabecalho, dias, brutos, dia)
     atual = por_sessao(pasta, {dia: dias[dia]})[-1][1]
     print(f"Resposta {len(atual)} desta sessão: {args.resultado}" + (f" ({conceito})" if conceito else ""))
     print(veredito_ritmo(atual)[1])
@@ -965,7 +974,7 @@ def texto_curva(grupos, n=None):
 
 def cmd_curva(args):
     pasta = Path(args.pasta).expanduser()
-    _, dias = ler_respostas(pasta / RESPOSTAS)
+    _, dias, _ = ler_respostas(pasta / RESPOSTAS)
     print(texto_curva(por_sessao(pasta, dias), args.sessoes))
 
 
