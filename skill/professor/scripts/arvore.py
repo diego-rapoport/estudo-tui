@@ -10,6 +10,9 @@ Uso:
   arvore.py sessao    <pasta-do-assunto> etapa <nome> [--conceito SLUG] [--descontar MIN]
   arvore.py sessao    <pasta-do-assunto> fim [--descontar MIN]
   arvore.py progresso <pasta-do-assunto>   # refaz _progresso.md e diz se a expectativa precisa de conversa
+  arvore.py resposta  <pasta-do-assunto> sozinho|dica|execucao|conceito|perdido [--conceito SLUG]
+                      [--previsto sozinho|dica|trava] [--sinal cansaco ...] [--nota TEXTO]
+  arvore.py curva     <pasta-do-assunto> [--sessoes N]   # curva de aprendizado e veredito de ritmo
   (sessao e progresso aceitam --data AAAA-MM-DD e --hora HH:MM)
 
 Notas de conceito: arquivos .md com `tipo: conceito` no frontmatter ou dentro de conceitos/.
@@ -28,8 +31,8 @@ NIVEIS = {0: "não visto", 1: "reconhece", 2: "em construção", 3: "domina", 4:
 LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]")
 COMENTARIO_RE = re.compile(r"<!--.*?-->", re.S)
 IGNORAR_DIRS = {".obsidian", ".trash", "pesquisa", "exercicios"}
-SESSOES, PROGRESSO = "_sessoes.md", "_progresso.md"
-IGNORAR_ARQUIVOS = {SESSOES, PROGRESSO}  # gerados; os links deles não contam na árvore
+SESSOES, PROGRESSO, RESPOSTAS = "_sessoes.md", "_progresso.md", "_respostas.md"
+IGNORAR_ARQUIVOS = {SESSOES, PROGRESSO, RESPOSTAS}  # gerados; os links deles não contam na árvore
 
 # Divisão padrão de uma sessão de estudo (% da meta da sessão), quando o plano não é dado.
 PLANO_PADRAO = {"revisao": 15, "pre-teste": 10, "explicacao": 15, "autoexplicacao": 15, "pratica": 35, "nota": 10}
@@ -518,6 +521,12 @@ def cmd_sessao(args):
         print(resumo_sessao(s))
         print()
         print(texto_expectativa(gerar_progresso(pasta, sessoes, m, dia)))
+        _, dias = ler_respostas(pasta / RESPOSTAS)
+        grupos = [g for g in por_sessao(pasta, {str(dia): dias.get(str(dia), [])}) if g[0] == f"{dia} {s['hora']}"]
+        if grupos and grupos[0][1]:
+            print()
+            print(texto_curva(grupos))
+            print("→ atualize \"Como este aluno aprende\" no _perfil.md com o que esta sessão mostrou.")
     for a in avisos:
         print(f"Aviso: {a}")
 
@@ -762,6 +771,204 @@ def cmd_progresso(args):
     print(f"\nGráficos em {pasta / PROGRESSO}")
 
 
+# ---------------------------------------------------------------------------
+# Curva de aprendizado: _respostas.md (cada resposta classificada) e veredito de ritmo
+# ---------------------------------------------------------------------------
+
+RESULTADOS = ["sozinho", "dica", "execucao", "conceito", "perdido"]
+ERROS = {"execucao", "conceito", "perdido"}
+PREVISOES = ["sozinho", "dica", "trava"]
+SINAIS = ["cansaco", "frustracao", "contestou", "confiante", "rapido"]
+JANELA = 5  # últimas respostas que decidem o ritmo
+JANELA_SINAL = 2  # cansaço e frustração só contam se apareceram nas últimas respostas
+DIA_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*$", re.M)
+CABECALHO_RESPOSTAS = "| hora | conceito | resultado | previsto | sinal | nota |"
+
+
+def ler_respostas(path):
+    """(cabeçalho, {dia: [resposta, ...]}) na ordem do arquivo."""
+    if not path.is_file():
+        return None, {}
+    texto = path.read_text(encoding="utf-8")
+    achados = list(DIA_RE.finditer(texto))
+    cabecalho = texto[: achados[0].start()] if achados else texto
+    dias = {}
+    for i, m in enumerate(achados):
+        fim_bloco = achados[i + 1].start() if i + 1 < len(achados) else len(texto)
+        linhas = dias.setdefault(m.group(1), [])
+        for linha in texto[m.end():fim_bloco].splitlines():
+            l = linha.strip()
+            if not l.startswith("|"):
+                continue
+            cels = [c.strip() for c in l.strip("|").split("|")]
+            if len(cels) < 6 or cels[0] == "hora" or set(cels[0]) <= set("-: "):
+                continue
+            hora, conceito, resultado, previsto, sinal, nota = cels[:6]
+            linhas.append({"hora": hora, "conceito": None if conceito in ("", "-") else conceito,
+                           "resultado": resultado, "previsto": None if previsto in ("", "-") else previsto,
+                           "sinais": [x for x in re.split(r"[,\s]+", sinal) if x and x != "-"], "nota": nota})
+    return cabecalho, dias
+
+
+def gravar_respostas(path, pasta, cabecalho, dias):
+    if cabecalho is None:
+        cabecalho = (f"---\ntipo: respostas\nassunto: {pasta.name}\n---\n# Respostas — {pasta.name}\n\n"
+                     "Cada resposta do aluno a uma pergunta ou problema, classificada pelo professor "
+                     "(gravado por `arvore.py resposta`; `arvore.py curva` resume). Resultados: sozinho, "
+                     "dica, execucao (ideia certa, erro de conta ou unidade), conceito (ideia errada), "
+                     "perdido (não sabe por onde começar).\n\n")
+    corpo = ""
+    for dia in sorted(dias):
+        corpo += f"## {dia}\n\n{CABECALHO_RESPOSTAS}\n|---|---|---|---|---|---|\n"
+        for r in dias[dia]:
+            corpo += (f"| {r['hora']} | {r['conceito'] or '-'} | {r['resultado']} | {r['previsto'] or '-'} | "
+                      f"{', '.join(r['sinais']) or '-'} | {r['nota']} |\n")
+        corpo += "\n"
+    gravar_atomico(path, cabecalho + corpo)
+
+
+def caminho_respostas(pasta):
+    path = pasta / RESPOSTAS
+    if path.is_symlink() or (path.exists() and not path.resolve().is_relative_to(pasta.resolve())):
+        sys.exit(f"Recusado: {path} aponta para fora de {pasta}. Nada foi gravado.")
+    return path
+
+
+def cmd_resposta(args):
+    pasta = Path(args.pasta).expanduser()
+    if not pasta.is_dir():
+        sys.exit(f"Pasta do assunto não encontrada: {pasta}")
+    dia = str(data(args.data) or dt.date.today())
+    hora = args.hora or dt.datetime.now().strftime("%H:%M")
+    path = caminho_respostas(pasta)
+    cabecalho, dias = ler_respostas(path)
+    conceito = normalizar(args.conceito) if args.conceito else None
+    if conceito is None:  # herda o conceito da etapa aberta do cronômetro, se houver
+        _, sessoes = ler_sessoes(pasta / SESSOES)
+        if sessoes and not sessoes[-1]["fim"] and str(sessoes[-1]["data"]) == dia and sessoes[-1]["etapas"]:
+            conceito = sessoes[-1]["etapas"][-1]["conceito"]
+    nota = " ".join((args.nota or "").replace("|", "/").split())
+    dias.setdefault(dia, []).append({"hora": hora, "conceito": conceito, "resultado": args.resultado,
+                                     "previsto": args.previsto, "sinais": args.sinal or [], "nota": nota})
+    gravar_respostas(path, pasta, cabecalho, dias)
+    atual = por_sessao(pasta, {dia: dias[dia]})[-1][1]
+    print(f"Resposta {len(atual)} desta sessão: {args.resultado}" + (f" ({conceito})" if conceito else ""))
+    print(veredito_ritmo(atual)[1])
+
+
+def por_sessao(pasta, dias):
+    """[(rótulo, respostas)]: cada resposta vai para a sessão do mesmo dia que começou antes dela."""
+    _, sessoes = ler_sessoes(pasta / SESSOES)
+    inicios = {}
+    for se in sessoes:
+        if HORA_RE.match(se["hora"]):
+            inicios.setdefault(str(se["data"]), []).append(se["hora"])
+    grupos = []
+    for dia in sorted(dias):
+        hs = sorted(inicios.get(dia, []), key=minutos_do_dia)
+        baldes = {}
+        for r in dias[dia]:
+            h = r["hora"] if HORA_RE.match(r["hora"]) else "00:00"
+            antes = [x for x in hs if minutos_do_dia(x) <= minutos_do_dia(h)]
+            baldes.setdefault(antes[-1] if antes else None, []).append(r)
+        for ini in sorted(baldes, key=lambda x: -1 if x is None else minutos_do_dia(x)):
+            grupos.append((f"{dia} {ini}" if ini else dia, baldes[ini]))
+    return grupos
+
+
+def ordem(r):
+    """sozinho 0, dica 1, trava 2: para comparar previsão com resultado."""
+    return {"sozinho": 0, "dica": 1}.get(r, 2)
+
+
+def veredito_ritmo(respostas):
+    """(código, texto) a partir das últimas JANELA respostas de uma sessão."""
+    janela = respostas[-JANELA:]
+    if len(janela) < 3:
+        return "POUCOS DADOS", f"Ritmo: poucos dados ({len(janela)} resposta(s)); continue observando."
+    erros = [r["resultado"] for r in janela if r["resultado"] in ERROS]
+    sinais = {x for r in janela[-JANELA_SINAL:] for x in r["sinais"]}
+    acertos = len(janela) - len(erros)
+    sozinho = sum(r["resultado"] == "sozinho" for r in janela)
+    seq = " → ".join(r["resultado"] for r in janela)
+    if sinais & {"cansaco", "frustracao"}:
+        return "FECHAR", (f"Ritmo: FECHAR ({seq}; sinais: {', '.join(sorted(sinais))}) → um último problema que ele "
+                          "resolve sozinho, resumo do que fez bem e próximo passo menor.")
+    if "perdido" in erros or (len(erros) >= 2 and len(set(erros)) >= 2):
+        return "DESACELERAR", (f"Ritmo: DESACELERAR ({seq}) → erros de tipos diferentes ou aluno perdido = "
+                               "sobrecarga. Pare o problema, volte a um subproblema de 1 elemento, exemplo "
+                               "resolvido e depois um quase igual.")
+    if len(erros) >= 2:
+        return f"MIRAR {erros[0]}", (f"Ritmo: MIRAR {erros[0]} ({seq}) → o mesmo erro se repete. Trate só ele, com "
+                                     "um caso de contraste, antes de seguir.")
+    if acertos / len(janela) >= 0.85 and sozinho >= 3:
+        return "ACELERAR", (f"Ritmo: ACELERAR ({seq}) → tire o andaime, pule o exemplo resolvido, suba a "
+                            "dificuldade ou misture conceitos.")
+    return "MANTER", f"Ritmo: MANTER ({seq}) → dificuldade na zona certa."
+
+
+def resumo_previsoes(respostas):
+    com = [r for r in respostas if r["previsto"] in PREVISOES]
+    if not com:
+        return None
+    certas = sum(ordem(r["previsto"]) == ordem(r["resultado"]) for r in com)
+    otimista = sum(ordem(r["previsto"]) < ordem(r["resultado"]) for r in com)
+    pessimista = len(com) - certas - otimista
+    texto = f"Previsões: {certas}/{len(com)} certas"
+    if len(com) < 3:
+        return texto
+    if otimista > pessimista:
+        texto += f" · {otimista} otimista(s) demais → você está superestimando o domínio; passos menores."
+    elif pessimista > otimista:
+        texto += f" · {pessimista} pessimista(s) demais → ele pode mais do que você supõe; tire apoio."
+    return texto
+
+
+def texto_curva(grupos, n=None):
+    """grupos: [(rótulo, respostas)] de por_sessao, em ordem."""
+    grupos = [(g, rs) for g, rs in grupos if rs]
+    if not grupos:
+        return "Nenhuma resposta registrada ainda (arvore.py resposta)."
+    if n:
+        grupos = grupos[-n:]
+    linhas = ["# Curva de aprendizado", "",
+              "| sessão | respostas | sozinho | dica | execucao | conceito | perdido | acerto | ritmo |",
+              "|---|---|---|---|---|---|---|---|---|"]
+    for rotulo, rs in grupos:
+        cont = {k: sum(r["resultado"] == k for r in rs) for k in RESULTADOS}
+        acerto = (cont["sozinho"] + cont["dica"]) / len(rs)
+        linhas.append(f"| {rotulo} | {len(rs)} | " + " | ".join(str(cont[k]) for k in RESULTADOS)
+                      + f" | {acerto:.0%} | {veredito_ritmo(rs)[0]} |")
+    rotulo, ultimo = grupos[-1]
+    linhas += ["", f"Última sessão ({rotulo}):", veredito_ritmo(ultimo)[1]]
+    prev = resumo_previsoes(ultimo)
+    if prev:
+        linhas.append(prev)
+    sinais = {}
+    for r in ultimo:
+        for x in r["sinais"]:
+            sinais[x] = sinais.get(x, 0) + 1
+    if sinais:
+        linhas.append("Sinais: " + ", ".join(f"{k} ×{v}" for k, v in sorted(sinais.items())))
+    erros_conceito = {}
+    for _, rs in grupos:
+        for r in rs:
+            if r["resultado"] in ("conceito", "perdido") and r["conceito"]:
+                erros_conceito[r["conceito"]] = erros_conceito.get(r["conceito"], 0) + 1
+    if erros_conceito:
+        linhas.append("Onde trava (conceito/perdido): "
+                      + ", ".join(f"{k} ×{v}" for k, v in sorted(erros_conceito.items(), key=lambda kv: -kv[1])))
+    linhas.append("Meta da prática guiada: ~80% de acerto (sozinho + dica). Bem acima disso, acelere; bem abaixo, "
+                  "passos menores.")
+    return "\n".join(linhas)
+
+
+def cmd_curva(args):
+    pasta = Path(args.pasta).expanduser()
+    _, dias = ler_respostas(pasta / RESPOSTAS)
+    print(texto_curva(por_sessao(pasta, dias), args.sessoes))
+
+
 def arquivo_config():
     """Mesmo arquivo que a TUI `estudando` lê: $XDG_CONFIG_HOME/estudando/config.toml."""
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
@@ -926,6 +1133,20 @@ def main():
     pr.add_argument("pasta")
     pr.add_argument("--data")
     pr.set_defaults(func=cmd_progresso)
+    rs = sub.add_parser("resposta", help="registra uma resposta do aluno, classificada")
+    rs.add_argument("pasta")
+    rs.add_argument("resultado", choices=RESULTADOS)
+    rs.add_argument("--conceito")
+    rs.add_argument("--previsto", choices=PREVISOES, help="o que você previu antes da resposta")
+    rs.add_argument("--sinal", action="append", choices=SINAIS, help="sinal de estado (pode repetir)")
+    rs.add_argument("--nota")
+    rs.add_argument("--data")
+    rs.add_argument("--hora")
+    rs.set_defaults(func=cmd_resposta)
+    cu = sub.add_parser("curva", help="curva de aprendizado por dia e veredito de ritmo")
+    cu.add_argument("pasta")
+    cu.add_argument("--sessoes", type=int, help="só as últimas N sessões com respostas")
+    cu.set_defaults(func=cmd_curva)
     args = p.parse_args()
     args.func(args)
 

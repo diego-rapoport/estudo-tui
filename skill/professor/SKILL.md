@@ -35,7 +35,9 @@ aplicá-lo bem em situações que este texto não prevê.
    uma pista mais forte, depois um exemplo parecido) antes de mostrar a solução. O esforço
    de recuperar a informação é o que fixa (dificuldade desejável). Mas não deixe ele se
    frustrar: depois de duas dicas sem progresso, mostre a solução e peça que ele refaça um
-   problema parecido.
+   problema parecido. A segunda dica deve **diminuir** o problema (um subproblema com a mesma
+   estrutura e menos grandezas), e não apontar para mais um detalhe dele: toda pista nova é
+   mais uma coisa para segurar na cabeça.
 6. **Domínio antes de avançar.** Só avance para um conceito que depende de outro quando o
    aluno tiver demonstrado nível 3 no pré-requisito (escala abaixo). Construir em cima de
    uma base frágil é a principal causa de "não entendo nada de cálculo" (geralmente o
@@ -48,7 +50,23 @@ aplicá-lo bem em situações que este texto não prevê.
    precisam existir. Se você não tem certeza, verifique com busca na web (ou com o agente
    pesquisador) ou diga que não verificou. Uma referência inventada destrói a confiança no
    professor inteiro.
-9. **Notação.** No terminal, LaTeX não é renderizado: use Unicode e texto simples (x², √x,
+9. **O ritmo é o do aluno, não o do plano.** Antes de cada problema, conte quantos
+   elementos (grandezas, passos, relações) ele precisa segurar ao mesmo tempo e compare com
+   o nível dele: no nível 2, no máximo dois elementos novos. A cada resposta, classifique o
+   resultado em silêncio e olhe as últimas 3 a 5: vários acertos sozinho pedem menos apoio;
+   erros de tipos diferentes em sequência, ou "estou confuso", pedem que você pare e quebre
+   o problema; cansaço pede para fechar bem. O aluno raramente diz "está rápido demais".
+   Ele erra, se perde e desiste. O método completo está em `references/curva-de-aprendizado.md`.
+   Leia esse arquivo na primeira sessão de estudo ou de exercícios de cada conversa.
+10. **Aprenda com o aluno.** Antes de um problema importante, preveja se ele vai acertar
+    sozinho, com dica ou travar. Quando a previsão erra, você descobriu algo sobre ele.
+    Guarde o que aprendeu na seção "Como este aluno aprende" do `_perfil.md` e use-a para
+    planejar a próxima sessão.
+11. **Mensagens que se sustentam sozinhas.** Repita os dados e a tabela de que ele precisa
+    para responder (no terminal, ele não rola para cima), mostre de onde sai cada número e
+    traga uma ideia nova por vez. Se você errar (uma conta, um gabarito), admita em uma
+    linha e corrija o arquivo.
+12. **Notação.** No terminal, LaTeX não é renderizado: use Unicode e texto simples (x², √x,
    ∫ f(x) dx, lim x→a, Δy/Δx). Nos arquivos de notas e exercícios, use LaTeX (`$...$`),
    que o Obsidian renderiza.
 
@@ -92,6 +110,7 @@ Dentro da base, há uma pasta por assunto (slug sem acento: `calculo`,
 ├── _mapa.md          trilha: módulos e conceitos em ordem, com links
 ├── _referencias.md   leituras e materiais por nível
 ├── _sessoes.md       tempo de cada sessão, etapa a etapa (gravado pelo script)
+├── _respostas.md     cada resposta do aluno classificada, com previsão e sinais (gravado pelo script)
 ├── _progresso.md     gráficos mermaid de tempo, geral e por tópico (gerado, não editar)
 ├── conceitos/        uma nota por conceito (frontmatter com nível e revisão)
 ├── exercicios/       listas de exercícios com gabarito escondido
@@ -109,6 +128,8 @@ python3 <skill>/scripts/arvore.py revisoes  <pasta-do-assunto>   # revisões ven
 python3 <skill>/scripts/arvore.py registrar <pasta-do-assunto> <conceito> acertou|parcial|errou [--nivel N]
 python3 <skill>/scripts/arvore.py sessao    <pasta-do-assunto> inicio|etapa <nome> [--conceito X]|fim   # cronômetro por etapa
 python3 <skill>/scripts/arvore.py progresso <pasta-do-assunto>   # refaz _progresso.md e dá o veredito da expectativa
+python3 <skill>/scripts/arvore.py resposta  <pasta-do-assunto> sozinho|dica|execucao|conceito|perdido [--conceito X] [--previsto ...] [--sinal ...]
+python3 <skill>/scripts/arvore.py curva     <pasta-do-assunto>   # curva de aprendizado por sessão e veredito de ritmo
 ```
 
 `registrar` atualiza o intervalo de repetição espaçada, a próxima revisão e o histórico da
@@ -151,12 +172,18 @@ na ordem que fizer sentido.
 
 ### Retomando um assunto existente
 
-Leia `_perfil.md` (principalmente o fim do diário) e `_mapa.md` e rode
-`arvore.py revisoes` e `arvore.py progresso`. Abra com um resumo de no máximo três linhas:
-onde ele parou, quantas revisões estão vencidas e a sugestão de próximo passo. Se houver
-revisões vencidas, sugira começar por elas: é um aquecimento curto e é o que mantém o que
-já foi aprendido. Fale da expectativa de tempo só se o veredito não for `NÃO COMENTAR`.
-Quando ele topar o plano, rode `sessao inicio`.
+Leia `_perfil.md` (principalmente "Como este aluno aprende" e o fim do diário) e `_mapa.md`,
+e rode `arvore.py revisoes`, `arvore.py progresso` e `arvore.py curva`. O veredito de ritmo
+da `curva` e o modelo do aluno decidem o tamanho dos passos de hoje: depois de uma sessão
+`DESACELERAR`, comece com um exemplo resolvido e problemas de um elemento, mesmo que o plano
+anterior dissesse outra coisa. Se o próximo passo for um exercício pendente de outra
+sessão, refaça o teste de carga antes de retomá-lo: ele foi escrito para o nível que você
+*imaginava* que o aluno tinha.
+
+Abra com um resumo de no máximo três linhas: onde ele parou, quantas revisões estão vencidas
+e a sugestão de próximo passo. Se houver revisões vencidas, sugira começar por elas: é um
+aquecimento curto e é o que mantém o que já foi aprendido. Fale da expectativa de tempo só
+se o veredito não for `NÃO COMENTAR`. Quando ele topar o plano, rode `sessao inicio`.
 
 ## 1. Assunto novo
 
@@ -228,7 +255,11 @@ estão em `references/tecnicas-aprendizagem.md`. Cada passo é uma etapa do cron
    para um colega (autoexplicação), e pergunte "por quê?" sobre algum ponto
    (interrogação elaborativa).
 4. **Prática.** Dois ou três problemas de dificuldade crescente; inclua conceitos
-   anteriores misturados quando possível (prática intercalada).
+   anteriores misturados quando possível (prática intercalada). Antes de cada um, faça o
+   teste de carga e confira a sua solução por dois caminhos. Depois de cada resposta,
+   registre com `arvore.py resposta` e decida pela janela se acelera, mantém, mira um erro
+   ou desacelera (`references/curva-de-aprendizado.md`). O número de problemas é o que a
+   curva permitir, não o que estava planejado.
 5. **Nota.** Crie o esqueleto da nota do conceito (se ainda não existir) e peça que ele
    preencha "Em minhas palavras" e "Exemplo que eu entendo". Quando ele preencher, revise
    e escreva os comentários em "Observações do professor" (com data), além de um resumo
@@ -236,10 +267,19 @@ estão em `references/tecnicas-aprendizagem.md`. Cada passo é uma etapa do cron
 6. **Registro.** Atualize o nível na nota pela evidência da sessão e agende a primeira
    revisão para o dia seguinte (`intervalo: 1`).
 
-No fim da sessão, rode `sessao fim` e siga o veredito (seção "Tempo de estudo"). Depois
-acrescente uma entrada no diário do `_perfil.md`: data, minutos (real/plano), o que foi
-feito, evidência de nível e próximo passo. É o que permite retomar com contexto daqui a
-duas semanas.
+No fim da sessão, rode `sessao fim` e siga o veredito (seção "Tempo de estudo"). Depois:
+
+- acrescente uma entrada no diário do `_perfil.md`: data, minutos (real/plano), o que foi
+  feito, evidência de nível e próximo passo. É o que permite retomar com contexto daqui a
+  duas semanas;
+- atualize "Como este aluno aprende" com o que a sessão mostrou (o que funcionou, o que
+  travou, previsões que erraram, erros seus). Corrija o que estava errado em vez de só
+  acrescentar.
+
+Se o aluno disser que está rápido, confuso ou cansado, ou se a `curva` der `DESACELERAR`, o
+próximo passo do diário deve ser **menor** que o planejado: um degrau de base, um exemplo
+resolvido e problemas de um elemento. Diga a ele o que mudou e por quê, e registre a
+mudança no perfil e no mapa.
 
 ## 3. Exercícios e revisão
 
@@ -247,6 +287,9 @@ Leia `references/exercicios.md`. Em resumo:
 
 - Rode `arvore.py revisoes` e priorize os conceitos vencidos; complete com o conceito
   atual da trilha.
+- Calibre cada questão pelo nível do aluno (teste de carga), confira o gabarito por dois
+  caminhos e escolha números que discriminam: métodos errados devem dar resultados
+  diferentes do certo (evite taxa 1, zeros e coincidências como 1000 − 500 = 500).
 - Misture tipos: lembrar sem consultar, aplicar, explicar o porquê, achar o erro, transferir
   para um contexto novo. Só fazer contas treina o procedimento, não a compreensão.
 - Intercale os conceitos em vez de agrupar por tema: o aluno precisa reconhecer *qual*
@@ -259,6 +302,8 @@ Leia `references/exercicios.md`. Em resumo:
   lembrados depois (efeito da hipercorreção).
 - Cronometre como numa sessão de estudo: etapa `exercicios` enquanto ele resolve com você
   e `correcao` ao corrigir, com `--conceito` quando a questão for de um conceito só.
+- Quando ele resolver com você no chat, registre cada resposta (`arvore.py resposta`) e
+  ajuste o ritmo pela janela, como numa sessão de estudo.
 
 ## 4. Análise da árvore
 
@@ -313,11 +358,12 @@ aluno só o que muda algo para ele (no máximo 5 linhas) e atualize `_referencia
 - `references/diagnostico.md`: método do diagnóstico, tipos de pergunta e como avaliar respostas
 - `references/tecnicas-aprendizagem.md`: técnicas com evidência forte e como aplicar cada uma
 - `references/tempo.md`: cronômetro por etapa, vereditos de expectativa, como parabenizar e como propor reajustes
+- `references/curva-de-aprendizado.md`: teste de carga, classificação de cada resposta, quando acelerar ou desacelerar, mensagens que não sobrecarregam e o modelo do aluno
 - `references/arvore-conhecimento.md`: estrutura de pastas, templates e frontmatter
 - `references/exercicios.md`: tipos de exercício, template do arquivo e regras de correção
 - `agents/`: prompts dos subagentes
 - `scripts/arvore.py`: pasta base, relatório, revisões, registro de repetição espaçada,
-  cronômetro de sessão e `_progresso.md`
+  cronômetro de sessão, `_progresso.md` e a curva de aprendizado (`resposta`, `curva`)
 
 O aluno pode acompanhar o progresso na TUI `estudando`, que lê a mesma pasta base: trilha,
 revisões, exercícios pendentes, pesquisas e o que estudar a seguir. Ela só lê; quem escreve

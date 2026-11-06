@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: sobrecarga-no-meio-do-problema
+expected_outcome: |
+  O aluno mostra sobrecarga no meio de um problema com muitas grandezas: erros de tipos
+  diferentes em sequência (concordou com um alerta errado, perdeu a tabela, divide pelo
+  número à mão) e diz "estou confuso". O professor reconhece o acerto (piso crítico 524),
+  aponta em uma linha o erro de unidade, e em vez de dar mais uma dica no problema grande,
+  reduz o passo: um subproblema com no máximo 2 grandezas ou um exemplo resolvido, com os
+  dados repetidos na própria mensagem, terminando com uma única pergunta curta.

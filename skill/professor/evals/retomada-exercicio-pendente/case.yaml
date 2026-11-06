@@ -1,0 +1,11 @@
+# Os arquivos de files/ são uma cópia de notas reais e ficam só locais (ver .gitignore).
+schema_version: "1.1"
+name: retomada-exercicio-pendente
+expected_outcome: |
+  O aluno (nível 2 em derivada num ponto, nível 2 no linear × multiplicativo) pede para
+  começar pelo exercício pendente de previsão de OOM, que tem 5 grandezas (limite, subida,
+  ciclo, piso, vazamento). O professor faz o teste de carga antes de propor: começa por
+  uma parte pequena do problema (1 ou 2 grandezas), com os dados na mensagem, e faz uma
+  única pergunta, sem revelar nenhuma resposta do gabarito.
+context:
+  scaffold_script: place-files.sh

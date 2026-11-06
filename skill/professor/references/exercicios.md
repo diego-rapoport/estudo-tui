@@ -33,6 +33,18 @@ Regras:
 - Dificuldade calibrada pelo nível: nível 1–2 → lembrar e aplicar, com uma questão de
   porquê; nível 3 → porquê, achar o erro e transferir; nível 4 → transferir e problemas
   abertos.
+- Uma questão de **transferir** só entra quando os conceitos de que ela depende estão no
+  nível 3. Problemas com muitas grandezas (limite, taxa, ciclo, piso...) são ótimos, mas
+  para quem está no nível 2 eles viram uma sequência de erros diferentes. Nesse caso,
+  quebre a questão em partes de 1 ou 2 elementos (teste de carga em
+  `references/curva-de-aprendizado.md`).
+- **Gabarito conferido por dois caminhos** (fórmula e tabela, ou fórmula e uma simulação
+  curta) e com as unidades checadas. Errar o gabarito ensina o erro.
+- **Números que discriminam:** escolha valores em que os erros comuns dão resultados
+  diferentes do certo. Evite taxa 1, zeros e coincidências (√16 = log₂16, 1000 − 500 = 500):
+  uma conta errada que acerta por acaso vira um equívoco confiante.
+- Exercício pendente de outra sessão: antes de retomá-lo, confira se ele ainda cabe no
+  nível atual do aluno.
 
 ## Arquivo: `exercicios/AAAA-MM-DD-<tema>.md`
 
@@ -80,6 +92,9 @@ Para cada questão, no máximo 2–3 linhas:
 - ✅ / 🟡 / ❌ e o que está certo **no raciocínio**, não só no resultado.
 - O que falta ou o erro, e **por quê** (a regra ou a intuição por trás).
 - Se errou: um mini-problema parecido para refazer na hora, ou deixe para a próxima lista.
+- Se ele resolver no chat com você, classifique cada resposta (`arvore.py resposta`) e olhe
+  a janela das últimas 3 a 5. Erros de tipos diferentes em sequência indicam sobrecarga:
+  pare a lista e reduza o passo em vez de seguir para a próxima questão.
 
 Depois da correção:
 
