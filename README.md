@@ -120,9 +120,12 @@ Para trocar de painel: `Alt`+setas ou clique. `Alt+z` amplia o painel atual (de 
 voltar), e `Ctrl-b d` sai sem fechar; rodar `estudando -s` outra vez volta para a mesma
 sessão, com a conversa intacta. Arrastar a borda redimensiona.
 
-Quando o professor ou o caderno termina (por exemplo, `Ctrl+C` duas vezes no `claude`), o
-foco volta sozinho para a TUI, que se expande se estava recolhida: dali, `q` sai e `i`/`c`
-reabrem. Num painel encerrado, `Ctrl+C` sai de tudo. Nos painéis vivos o `Ctrl+C` continua
+Quando o professor ou o caderno termina (por exemplo, `Ctrl+C` duas vezes no `claude` ou no
+`node`), o painel fecha na hora e o resto se reorganiza: o outro painel da direita fica com a
+coluna toda (e com o foco, se ele estava no que fechou); se não sobrou nenhum, a TUI volta a
+ocupar a janela inteira, mesmo que estivesse recolhida. `i`/`c` reabrem. Só quando o programa
+morre logo ao abrir (em menos de 3 s, como um comando que não existe) o painel fica, mostrando
+o erro; ali, `Ctrl+C` fecha só ele. Nos painéis vivos o `Ctrl+C` continua
 indo para o programa, que precisa dele (interromper o claude, cancelar uma linha no REPL);
 para sair de qualquer painel, mesmo com algo travado, use `Alt+q`. Se a TUI cair, o tmux
 fecha o professor e o caderno junto.
@@ -141,8 +144,8 @@ altura_caderno = 40
 Fora de um tmux, a sessão roda num servidor tmux próprio (`tmux -L estudando`), com mouse,
 rótulos nos painéis e os atalhos acima, sem mexer no seu `~/.tmux.conf`. Se você já está
 num tmux, ela divide a janela atual e usa os seus atalhos (`Ctrl-b` setas; para expandir a
-TUI recolhida, vá até ela e aperte `b`). Lá não há `Alt+q` nem `Ctrl+C` em painel
-encerrado: volte à TUI e use `q` ou `Ctrl+C`.
+TUI recolhida, vá até ela e aperte `b`). Lá não há `Alt+q`, e um painel que não abriu se
+fecha com `Ctrl-b x`; para sair de tudo, volte à TUI e use `q` ou `Ctrl+C`.
 
 Rodar o `estudando` de dentro do professor ou do caderno (inclusive pela própria IA) não
 toma os painéis da TUI de fora: a TUI de dentro abre sem painéis, e sem terminal nem abre.

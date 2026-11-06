@@ -7,7 +7,8 @@
 //! opções e atalhos daqui não vazem para o tmux do usuário.
 //!
 //! A vida dos painéis segue a da TUI: `q` fecha os dois, Ctrl+C os mata com SIGKILL, e hooks
-//! do tmux cobrem o que a TUI não vê (ela cair, ou o programa de um painel terminar).
+//! do tmux cobrem o que a TUI não vê (ela cair, ou o programa de um painel terminar: o painel
+//! some e os outros ocupam o espaço).
 
 use std::env;
 use std::ffi::{OsStr, OsString};
@@ -15,6 +16,7 @@ use std::io;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config;
 
@@ -25,6 +27,11 @@ fn socket() -> String {
 const SESSAO: &str = "estudando";
 const MARCA: &str = "@estudando";
 const TITULO: &str = "@estudando-titulo";
+/// Quando o programa do painel começou (segundos desde 1970), para o `pane-died` saber se ele
+/// morreu ao abrir.
+const INICIO: &str = "@estudando-inicio";
+/// Um programa que termina antes disso (em segundos) deixa o painel aberto mostrando o erro.
+const FALHA_AO_ABRIR: u64 = 3;
 /// Largura da TUI recolhida: uma faixa que ainda dá para clicar.
 pub const RECOLHIDA: u16 = 3;
 /// Mata com SIGKILL o grupo de processos de cada painel do servidor e derruba o servidor.
@@ -233,7 +240,7 @@ fn opcoes_do_servidor(tui: &str) -> Vec<String> {
         &["set", "-g", "pane-border-status", "top"],
         &["set", "-g", "pane-border-format", " #{?@estudando-titulo,#{@estudando-titulo},#{pane_title}} "],
         &["set", "-g", "pane-active-border-style", "fg=cyan"],
-        &["set", "-g", "remain-on-exit-format", " encerrado: na TUI, i ou c reabre e q sai · aqui, Ctrl+C sai de tudo "],
+        &["set", "-g", "remain-on-exit-format", " não abriu (veja o erro acima): na TUI, i ou c tenta de novo · aqui, Ctrl+C fecha "],
         &["bind", "-n", "M-Left", "select-pane", "-L"],
         &["bind", "-n", "M-Right", "select-pane", "-R"],
         &["bind", "-n", "M-Up", "select-pane", "-U"],
@@ -243,17 +250,17 @@ fn opcoes_do_servidor(tui: &str) -> Vec<String> {
         &["bind", "-n", "M-b", "send-keys", "-t", tui, "b"],
         // Saída garantida, mesmo com a TUI travada ou morta.
         &["bind", "-n", "M-q", "run-shell", ENCERRAR],
-        // Ctrl+C continua indo para o claude e o caderno, que precisam dele. Num painel
-        // encerrado, ou na TUI (fora do editor do `o`), mata tudo.
+        // Ctrl+C continua indo para o claude e o caderno, que precisam dele. Num painel que
+        // não abriu, fecha só ele; na TUI (fora do editor do `o`), mata tudo.
         &[
             "bind",
             "-n",
             "C-c",
             "if",
             "-F",
-            "#{||:#{pane_dead},#{&&:#{==:#{@estudando},tui},#{==:#{pane_current_command},estudando}}}",
+            "#{&&:#{==:#{@estudando},tui},#{||:#{pane_dead},#{==:#{pane_current_command},estudando}}}",
             &format!("run-shell '{ENCERRAR}'"),
-            "send-keys C-c",
+            &format!("if -F '#{{pane_dead}}' '{}' 'send-keys C-c'", fechar_painel(tui)),
         ],
     ]
     .iter()
@@ -264,6 +271,16 @@ fn opcoes_do_servidor(tui: &str) -> Vec<String> {
         opcoes.push(["set", "-sa", "terminal-features", ",*:RGB"].map(String::from).into());
     }
     opcoes.join(&[";".to_string()][..])
+}
+
+/// Fecha o painel atual. Se era ele que estava em foco, o foco vai para o vizinho da coluna da
+/// direita, se sobrou um, ou para a TUI, que sem vizinhos já ocupa a janela toda.
+fn fechar_painel(tui: &str) -> String {
+    format!("kill-pane ; select-pane -t {tui} ; select-pane -R")
+}
+
+fn agora() -> String {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0).to_string()
 }
 
 /// A janela do tmux onde a TUI roda e os painéis que ela abriu ao lado.
@@ -339,7 +356,8 @@ impl Paineis {
             if vivo {
                 return Ok(Aberto::Pronto(id));
             }
-            self.tmux.rodar(["respawn-pane".into(), "-t".into(), id.clone()].into_iter().chain(ambiente))?;
+            let inicio = [";".into(), "set".into(), "-p".into(), "-t".into(), id.clone(), INICIO.into(), agora()];
+            self.tmux.rodar(["respawn-pane".into(), "-t".into(), id.clone()].into_iter().chain(ambiente).chain(inicio))?;
             return Ok(Aberto::Novo(id));
         }
         let comando = self.comandos.de(papel);
@@ -368,16 +386,16 @@ impl Paineis {
         args.push(comando);
         // Na mesma fila de comandos, antes que um programa que termina na hora feche o
         // painel: sem -d o painel novo vira o "atual" para os set-option seguintes.
-        for opcao in [["remain-on-exit", "on"], [MARCA, papel.nome()], [TITULO, &titulo]] {
+        let inicio = agora();
+        for opcao in [["remain-on-exit", "on"], [MARCA, papel.nome()], [TITULO, &titulo], [INICIO, &inicio]] {
             args.extend([";".into(), "set".into(), "-p".into(), opcao[0].into(), opcao[1].into()]);
         }
-        // Quando o programa termina com o foco nele, o foco volta para a TUI (expandida, se
-        // estava recolhida), onde q sai e i/c reabrem; senão o aluno fica num painel morto.
-        let tui = &self.tui;
-        let expandir = format!("resize-pane -t {tui} -x {}%", self.tamanhos.tui);
+        // Quando o programa termina, o painel fecha e os outros ocupam o espaço: o vizinho da
+        // direita fica com a coluna toda, ou a TUI com a janela toda (ver `fechar_painel`).
+        // Só fica aberto, mostrando o erro, se o programa morreu ao abrir (comando errado).
         let ao_morrer = format!(
-            "if -F '#{{pane_active}}' \"select-pane -t {tui} ; if -F -t {tui} '#{{<=:#{{pane_width}},{}}}' '{expandir}'\"",
-            RECOLHIDA + 1
+            "if -F '#{{e|<:#{{e|-:#{{pane_dead_time}},#{{{INICIO}}}}},{FALHA_AO_ABRIR}}}' '' \"if -F '#{{pane_active}}' '{}' kill-pane\"",
+            fechar_painel(&self.tui)
         );
         args.extend([";".into(), "set-hook".into(), "-p".into(), "pane-died".into(), ao_morrer]);
         args.extend([";".into(), "select-pane".into(), "-t".into(), self.tui.clone()]);
