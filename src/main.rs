@@ -43,6 +43,9 @@ Os comandos da sessão também podem ficar no config, como `ia = \"gemini\"` e
 `caderno = \"qalc\"`, e os tamanhos em %: `largura_tui = 55`, `altura_ia = 60`,
 `altura_caderno = 40`. Sem --sessao, apertar i, c ou p na TUI abre a sessão na hora.
 
+Cada assunto pode ter o seu caderno, numa tabela `[cadernos]` (`calculo = \"node\"`,
+`c = \"editor\"`). A palavra `editor` vira $VISUAL, $EDITOR ou nvim, nessa ordem.
+
 Dentro da TUI, aperte ? para ver os atalhos.
 ";
 

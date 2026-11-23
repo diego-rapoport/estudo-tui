@@ -135,11 +135,26 @@ Os comandos e os tamanhos ficam no config (`""` desliga o painel):
 ```toml
 pasta = "~/Documentos/Aprendizado"
 ia = "claude"          # ou "gemini", "codex"...
-caderno = "python3"    # ou "node", "qalc", "nvim rascunho.md"...
+caderno = "python3"    # ou "node", "qalc", "editor rascunho.md"...
 largura_tui = 55       # % da largura para a TUI
 altura_ia = 60         # proporção professor/caderno na coluna da direita
 altura_caderno = 40
+
+[cadernos]             # um caderno por assunto (nome da pasta); vale mais que `caderno`
+calculo = "node"
+c = "editor"
 ```
+
+O caderno é escolhido nesta ordem: `--caderno`, depois `[cadernos]` do assunto, depois
+`caderno`, e por fim `python3`. Assim, `estudando -s calculo` abre o node e
+`estudando -s c` abre o editor. Ao trocar de assunto na TUI, o caderno que já está aberto
+continua o mesmo. Feche-o e aperte `c` para abrir o do assunto novo.
+
+A palavra `editor` no começo do comando vira o editor de quem está usando: `$VISUAL`,
+senão `$EDITOR`, senão `nvim`. É a mesma regra da tecla `o`. Para usar outro editor, ou
+o neovim com outra config, exporte a variável no seu shell (`export VISUAL=hx`). Ela
+precisa ser um programa no `PATH`, e não um alias: o tmux roda o comando com `sh -c`,
+que não lê aliases.
 
 Fora de um tmux, a sessão roda num servidor tmux próprio (`tmux -L estudando`), com mouse,
 rótulos nos painéis e os atalhos acima, sem mexer no seu `~/.tmux.conf`. Se você já está

@@ -992,11 +992,18 @@ def ler_base():
     cfg = arquivo_config()
     if cfg.is_file():
         for linha in cfg.read_text(encoding="utf-8").splitlines():
+            if cabecalho_toml(linha):
+                break  # `pasta` só vale no topo, antes de `[cadernos]` e outras tabelas
             chave, sep, valor = linha.partition("=")
             valor = valor_toml(valor)
             if sep and chave.strip() == "pasta" and valor:
                 return Path(valor).expanduser(), str(cfg)
     return None, None
+
+
+def cabecalho_toml(linha):
+    """Se a linha é um cabeçalho de tabela (`[cadernos]`). Mesma regra de `src/config.rs`."""
+    return linha.strip().startswith("[")
 
 
 def valor_toml(bruto):
@@ -1045,12 +1052,18 @@ CABECALHO_CONFIG = "# Pasta dos estudos: a skill professor escreve aqui e a TUI 
 OPCOES_SESSAO = """
 # Sessão (`estudando --sessao`): comandos dos painéis ao lado da TUI. "" desliga o painel.
 # ia = "claude"         # o professor: claude, gemini, codex...
-# caderno = "python3"   # rascunho e contas: python3, node, qalc, "nvim rascunho.md"...
+# caderno = "python3"   # rascunho e contas: python3, node, qalc, "editor rascunho.md"...
 
 # Tamanhos da sessão, em %: largura da TUI e proporção professor/caderno à direita.
 # largura_tui = 55
 # altura_ia = 60
 # altura_caderno = 40
+
+# Caderno de cada assunto (nome da pasta), no lugar do `caderno` acima. `editor` é o seu
+# $VISUAL/$EDITOR (nvim se não houver).
+# [cadernos]
+# calculo = "node"
+# c = "editor"
 """
 
 
@@ -1060,10 +1073,11 @@ def com_pasta(atual, valor):
     nova = f"pasta = {valor}"
     if not atual.strip():
         return f"{CABECALHO_CONFIG}{nova}\n{OPCOES_SESSAO}"
-    linhas, trocou = [], False
+    linhas, trocou, no_topo = [], False, True
     for linha in atual.splitlines():
+        no_topo = no_topo and not cabecalho_toml(linha)
         chave, sep, _ = linha.partition("=")
-        if sep and chave.strip() == "pasta" and not trocou:
+        if sep and no_topo and chave.strip() == "pasta" and not trocou:
             linhas.append(nova)
             trocou = True
         else:

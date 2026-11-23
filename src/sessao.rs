@@ -92,17 +92,19 @@ pub struct Comandos {
 }
 
 impl Comandos {
-    /// Linha de comando > config > padrão. Vazio desliga o painel.
-    fn de(&self, papel: Papel) -> String {
-        let cli = match papel {
-            Papel::Professor => &self.ia,
-            Papel::Caderno => &self.caderno,
+    /// Linha de comando > caderno do assunto (`[cadernos]`) > config > padrão. Vazio desliga
+    /// o painel. A palavra `editor` no começo vira o editor do usuário.
+    fn de(&self, papel: Papel, assunto: &str) -> String {
+        let (cli, do_assunto) = match papel {
+            Papel::Professor => (&self.ia, None),
+            Papel::Caderno => (&self.caderno, config::chave_em("cadernos", assunto)),
         };
-        cli.clone()
+        let comando = cli
+            .clone()
+            .or(do_assunto)
             .or_else(|| config::chave(papel.chave()))
-            .unwrap_or_else(|| papel.padrao().into())
-            .trim()
-            .to_string()
+            .unwrap_or_else(|| papel.padrao().into());
+        com_editor(comando.trim(), &config::editor())
     }
 
     /// Repassa as escolhas para a TUI que vai rodar dentro da sessão nova.
@@ -115,6 +117,16 @@ impl Comandos {
             }
         }
         v
+    }
+}
+
+/// Troca a palavra `editor` no começo do comando pelo editor do usuário (`editor ola.c`
+/// vira `nv ola.c`). Ninguém precisa pôr o próprio editor no config de outro.
+fn com_editor(comando: &str, editor: &str) -> String {
+    match comando.split_once(char::is_whitespace) {
+        Some(("editor", resto)) => format!("{editor} {}", resto.trim_start()),
+        None if comando == "editor" => editor.to_string(),
+        _ => comando.to_string(),
     }
 }
 
@@ -342,8 +354,21 @@ impl Paineis {
 
     /// Garante o painel aberto e vivo, sem tirar o foco da TUI.
     pub fn garantir(&self, papel: Papel, assunto: &str) -> io::Result<Aberto> {
+        let existente = self.achar(papel);
+        if let Some((id, true)) = existente {
+            return Ok(Aberto::Pronto(id));
+        }
+        let comando = self.comandos.de(papel, assunto);
+        if comando.is_empty() {
+            return Err(io::Error::other(format!(
+                "o painel {} está desligado (`{}` vazio no config ou na linha de comando)",
+                papel.nome(),
+                papel.chave()
+            )));
+        }
         let raiz = self.raiz.to_string_lossy();
-        // O respawn-pane reaproveita o comando, mas não o -c e o -e da criação.
+        // O respawn-pane não reaproveita o -c e o -e da criação; o comando vai de novo porque o
+        // assunto pode ter mudado desde então (e com ele o caderno).
         let ambiente = [
             "-c".into(),
             raiz.to_string(),
@@ -352,21 +377,16 @@ impl Paineis {
             "-e".into(),
             format!("ESTUDANDO_ASSUNTO={assunto}"),
         ];
-        if let Some((id, vivo)) = self.achar(papel) {
-            if vivo {
-                return Ok(Aberto::Pronto(id));
+        let titulo = format!("{} · {comando}", papel.nome());
+        if let Some((id, _)) = existente {
+            let mut args: Vec<String> = vec!["respawn-pane".into(), "-t".into(), id.clone()];
+            args.extend(ambiente);
+            args.push(comando);
+            for opcao in [[INICIO, &agora()], [TITULO, &titulo]] {
+                args.extend([";".into(), "set".into(), "-p".into(), "-t".into(), id.clone(), opcao[0].into(), opcao[1].into()]);
             }
-            let inicio = [";".into(), "set".into(), "-p".into(), "-t".into(), id.clone(), INICIO.into(), agora()];
-            self.tmux.rodar(["respawn-pane".into(), "-t".into(), id.clone()].into_iter().chain(ambiente).chain(inicio))?;
+            self.tmux.rodar(&args)?;
             return Ok(Aberto::Novo(id));
-        }
-        let comando = self.comandos.de(papel);
-        if comando.is_empty() {
-            return Err(io::Error::other(format!(
-                "o painel {} está desligado (`{}` vazio no config ou na linha de comando)",
-                papel.nome(),
-                papel.chave()
-            )));
         }
         // Coluna da direita: professor em cima, caderno embaixo. Se o vizinho já existe,
         // divide ele; senão, divide a TUI.
@@ -377,7 +397,6 @@ impl Paineis {
             (Papel::Caderno, Some(v)) => (v, ["-v"].as_slice(), 100 - professor),
             (_, None) => (&self.tui, ["-h"].as_slice(), 100 - tui),
         };
-        let titulo = format!("{} · {comando}", papel.nome());
         let mut args: Vec<String> = vec!["split-window".into(), "-t".into(), alvo.into()];
         args.extend(divisao.iter().map(|s| s.to_string()));
         args.extend(["-l".into(), format!("{tamanho}%")]);
@@ -480,7 +499,17 @@ impl Drop for Paineis {
 
 #[cfg(test)]
 mod testes {
-    use super::Tamanhos;
+    use super::{Tamanhos, com_editor};
+
+    #[test]
+    fn editor_troca_so_a_palavra_do_comeco() {
+        assert_eq!(com_editor("editor", "nv"), "nv");
+        assert_eq!(com_editor("editor ola.c", "nv"), "nv ola.c");
+        assert_eq!(com_editor("editor  rascunho.md", "code -w"), "code -w rascunho.md");
+        assert_eq!(com_editor("node", "nv"), "node");
+        assert_eq!(com_editor("editores", "nv"), "editores");
+        assert_eq!(com_editor("nvim editor.md", "nv"), "nvim editor.md");
+    }
 
     #[test]
     fn tamanhos_sao_proporcoes_com_limites() {

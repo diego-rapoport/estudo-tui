@@ -12,6 +12,7 @@ use ratatui::crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, d
 use ratatui::widgets::{ListState, TableState};
 
 use crate::analise::{hoje, itens_trilha, revisoes_ordenadas};
+use crate::config;
 use crate::model::{Assunto, assinatura, carregar_assuntos};
 use crate::sessao::{Aberto, Paineis, Papel};
 use crate::ui;
@@ -412,9 +413,7 @@ impl App {
     }
 
     fn editar(&mut self, alvo: &Path, terminal: &mut DefaultTerminal) -> io::Result<()> {
-        let editor = std::env::var("VISUAL")
-            .or_else(|_| std::env::var("EDITOR"))
-            .unwrap_or_else(|_| "nvim".into());
+        let editor = config::editor();
         let mut partes = editor.split_whitespace();
         let programa = partes.next().unwrap_or("vi");
 

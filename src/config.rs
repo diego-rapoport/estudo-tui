@@ -77,15 +77,31 @@ fn valor_toml(bruto: &str) -> Option<String> {
     }
 }
 
-/// Valor de `chave = ...` no texto do config; ignora comentários e outras chaves.
-fn valor_da_chave(texto: &str, chave: &str) -> Option<String> {
+/// `[tabela]` de uma linha de cabeçalho, ou `None` se a linha não é cabeçalho.
+fn cabecalho(linha: &str) -> Option<&str> {
+    let l = linha.trim();
+    l.strip_prefix('[')?.split_once(']').map(|(t, _)| t.trim())
+}
+
+/// Valor de `chave = ...` dentro da `tabela` (`""` é o topo, antes do primeiro cabeçalho);
+/// ignora comentários, outras chaves e outras tabelas. A chave pode vir entre aspas.
+fn valor_em(texto: &str, tabela: &str, chave: &str) -> Option<String> {
+    let mut atual = "";
     texto.lines().find_map(|linha| {
-        let (k, valor) = linha.split_once('=')?;
-        if k.trim() != chave {
+        if let Some(t) = cabecalho(linha) {
+            atual = t;
             return None;
         }
-        valor_toml(valor)
+        let (k, valor) = linha.split_once('=')?;
+        let k = k.trim();
+        let k = k.strip_prefix('"').and_then(|k| k.strip_suffix('"')).unwrap_or(k);
+        (atual == tabela && k == chave).then(|| valor_toml(valor)).flatten()
     })
+}
+
+/// Valor de `chave = ...` no topo do config.
+fn valor_da_chave(texto: &str, chave: &str) -> Option<String> {
+    valor_em(texto, "", chave)
 }
 
 /// `pasta = ...` do config.
@@ -98,6 +114,22 @@ fn ler_arquivo(cfg: &Path) -> Option<PathBuf> {
 /// quem chama decide o que o vazio significa.
 pub fn chave(nome: &str) -> Option<String> {
     valor_da_chave(&fs::read_to_string(arquivo_config()).ok()?, nome)
+}
+
+/// Uma chave dentro de uma tabela do config (`[cadernos]`...).
+pub fn chave_em(tabela: &str, nome: &str) -> Option<String> {
+    valor_em(&fs::read_to_string(arquivo_config()).ok()?, tabela, nome)
+}
+
+/// O editor de texto do usuário: `$VISUAL`, senão `$EDITOR`, senão `nvim`. Pode ter
+/// argumentos (`code -w`).
+pub fn editor() -> String {
+    ["VISUAL", "EDITOR"]
+        .iter()
+        .filter_map(|v| env::var(v).ok())
+        .map(|v| v.trim().to_string())
+        .find(|v| !v.is_empty())
+        .unwrap_or_else(|| "nvim".into())
 }
 
 fn string_toml(s: &str) -> String {
@@ -160,10 +192,15 @@ fn com_pasta(atual: &str, valor: &str) -> String {
         return format!("{CABECALHO}{nova}\n{OPCOES_SESSAO}");
     }
     let mut trocou = false;
+    let mut no_topo = true;
     let mut linhas: Vec<String> = atual
         .lines()
         .map(|l| match l.split_once('=') {
-            Some((k, _)) if k.trim() == "pasta" && !trocou => {
+            _ if cabecalho(l).is_some() => {
+                no_topo = false;
+                l.to_string()
+            }
+            Some((k, _)) if no_topo && k.trim() == "pasta" && !trocou => {
                 trocou = true;
                 nova.clone()
             }
@@ -180,17 +217,23 @@ const CABECALHO: &str = "# Pasta dos estudos: a skill professor escreve aqui e a
 const OPCOES_SESSAO: &str = "
 # Sessão (`estudando --sessao`): comandos dos painéis ao lado da TUI. \"\" desliga o painel.
 # ia = \"claude\"         # o professor: claude, gemini, codex...
-# caderno = \"python3\"   # rascunho e contas: python3, node, qalc, \"nvim rascunho.md\"...
+# caderno = \"python3\"   # rascunho e contas: python3, node, qalc, \"editor rascunho.md\"...
 
 # Tamanhos da sessão, em %: largura da TUI e proporção professor/caderno à direita.
 # largura_tui = 55
 # altura_ia = 60
 # altura_caderno = 40
+
+# Caderno de cada assunto (nome da pasta), no lugar do `caderno` acima. `editor` é o seu
+# $VISUAL/$EDITOR (nvim se não houver).
+# [cadernos]
+# calculo = \"node\"
+# c = \"editor\"
 ";
 
 #[cfg(test)]
 mod testes {
-    use super::{com_pasta, string_toml, valor_da_chave, valor_toml};
+    use super::{com_pasta, string_toml, valor_da_chave, valor_em, valor_toml};
 
     #[test]
     fn valor_toml_respeita_aspas_e_comentarios() {
@@ -221,5 +264,20 @@ mod testes {
 
         let sem_pasta = com_pasta("ia = \"codex\"", "\"~/C\"");
         assert_eq!(sem_pasta, "pasta = \"~/C\"\nia = \"codex\"\n");
+
+        // Um assunto chamado `pasta` em [cadernos] não é a pasta de estudos.
+        let tabela = com_pasta("[cadernos]\npasta = \"node\"\n", "\"~/D\"");
+        assert_eq!(tabela, "pasta = \"~/D\"\n[cadernos]\npasta = \"node\"\n");
+    }
+
+    #[test]
+    fn chaves_de_tabela_nao_se_misturam_com_as_do_topo() {
+        let texto = "caderno = \"python3\"\n\n[cadernos]\ncalculo = \"node\" # contas\n\"c\" = 'editor ola.c'\nia = \"x\"\n";
+        assert_eq!(valor_da_chave(texto, "caderno").as_deref(), Some("python3"));
+        assert_eq!(valor_da_chave(texto, "ia"), None);
+        assert_eq!(valor_em(texto, "cadernos", "calculo").as_deref(), Some("node"));
+        assert_eq!(valor_em(texto, "cadernos", "c").as_deref(), Some("editor ola.c"));
+        assert_eq!(valor_em(texto, "cadernos", "fisica"), None);
+        assert_eq!(valor_em(texto, "outra", "calculo"), None);
     }
 }
