@@ -130,6 +130,13 @@ fn com_editor(comando: &str, editor: &str) -> String {
     }
 }
 
+/// Onde o painel roda: o caderno, na pasta `codigo/` do assunto, se ela existir (programas
+/// para editar e compilar); o resto, na pasta de estudos.
+fn pasta_do_painel(raiz: &Path, papel: Papel, assunto: &str) -> PathBuf {
+    let codigo = raiz.join(assunto).join("codigo");
+    if papel == Papel::Caderno && !assunto.is_empty() && codigo.is_dir() { codigo } else { raiz.to_path_buf() }
+}
+
 /// `tmux` no servidor atual (`$TMUX`) ou no servidor próprio da sessão.
 struct Tmux {
     proprio: bool,
@@ -368,10 +375,10 @@ impl Paineis {
         }
         let raiz = self.raiz.to_string_lossy();
         // O respawn-pane não reaproveita o -c e o -e da criação; o comando vai de novo porque o
-        // assunto pode ter mudado desde então (e com ele o caderno).
+        // assunto pode ter mudado desde então (e com ele o caderno e a pasta).
         let ambiente = [
             "-c".into(),
-            raiz.to_string(),
+            pasta_do_painel(&self.raiz, papel, assunto).to_string_lossy().to_string(),
             "-e".into(),
             format!("ESTUDANDO_DIR={raiz}"),
             "-e".into(),
@@ -499,7 +506,9 @@ impl Drop for Paineis {
 
 #[cfg(test)]
 mod testes {
-    use super::{Tamanhos, com_editor};
+    use std::fs;
+
+    use super::{Papel, Tamanhos, com_editor, pasta_do_painel};
 
     #[test]
     fn editor_troca_so_a_palavra_do_comeco() {
@@ -509,6 +518,18 @@ mod testes {
         assert_eq!(com_editor("node", "nv"), "node");
         assert_eq!(com_editor("editores", "nv"), "editores");
         assert_eq!(com_editor("nvim editor.md", "nv"), "nvim editor.md");
+    }
+
+    #[test]
+    fn caderno_abre_em_codigo_quando_existe() {
+        let raiz = std::env::temp_dir().join(format!("estudando-teste-{}", std::process::id()));
+        fs::create_dir_all(raiz.join("c").join("codigo")).unwrap();
+        fs::create_dir_all(raiz.join("calculo")).unwrap();
+        assert_eq!(pasta_do_painel(&raiz, Papel::Caderno, "c"), raiz.join("c").join("codigo"));
+        assert_eq!(pasta_do_painel(&raiz, Papel::Caderno, "calculo"), raiz);
+        assert_eq!(pasta_do_painel(&raiz, Papel::Professor, "c"), raiz);
+        assert_eq!(pasta_do_painel(&raiz, Papel::Caderno, ""), raiz);
+        fs::remove_dir_all(&raiz).unwrap();
     }
 
     #[test]

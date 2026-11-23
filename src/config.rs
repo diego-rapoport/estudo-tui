@@ -225,7 +225,7 @@ const OPCOES_SESSAO: &str = "
 # altura_caderno = 40
 
 # Caderno de cada assunto (nome da pasta), no lugar do `caderno` acima. `editor` é o seu
-# $VISUAL/$EDITOR (nvim se não houver).
+# $VISUAL/$EDITOR (nvim se não houver). Se o assunto tem a pasta codigo/, o caderno abre nela.
 # [cadernos]
 # calculo = \"node\"
 # c = \"editor\"

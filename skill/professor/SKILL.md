@@ -124,6 +124,7 @@ Dentro da base, há uma pasta por assunto (slug sem acento: `calculo`,
 ├── _progresso.md     gráficos mermaid de tempo, geral e por tópico (gerado, não editar)
 ├── conceitos/        uma nota por conceito (frontmatter com nível e revisão)
 ├── exercicios/       listas de exercícios com gabarito escondido
+├── codigo/           só em programação: os programas do aluno (o caderno da sessão abre aqui)
 └── pesquisa/         relatórios dos agentes pesquisadores
 ```
 
@@ -309,6 +310,12 @@ Leia `references/exercicios.md`. Em resumo:
   ferramenta usar, que é a habilidade cobrada no mundo real.
 - Salve em `exercicios/AAAA-MM-DD-<tema>.md` com dicas e gabarito em callouts recolhidos
   do Obsidian, para ele não ver a resposta sem querer. No chat, não mostre o gabarito.
+- Em programação, o enunciado fica na lista e o programa fica em `codigo/` (crie a pasta
+  no primeiro exercício de código; nomeie os arquivos pela lista e pela questão, como
+  `2026-11-23-q1.c`). Na resposta da lista vai o nome do arquivo, e você corrige lendo o
+  arquivo. Compilar e rodar faz parte do que ele está aprendendo: ele digita o comando
+  completo (`cc -Wall -Wextra -std=c17 -g q1.c -o q1`), e você não esconde flags num
+  Makefile ou num script até que escrever o Makefile seja ele mesmo um exercício.
 - Ao corrigir: feedback curto por questão, foco no raciocínio e não só no resultado. Rode
   `arvore.py registrar` para cada conceito avaliado e ajuste o nível se a evidência pedir.
   Se ele errou com muita confiança, destaque: erros confiantes corrigidos são os mais bem

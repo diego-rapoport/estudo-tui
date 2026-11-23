@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use chrono::NaiveDate;
 
 pub const NIVEIS: [&str; 5] = ["não visto", "reconhece", "em construção", "domina", "transfere"];
-const IGNORAR_DIRS: [&str; 4] = [".obsidian", ".trash", "pesquisa", "exercicios"];
+const IGNORAR_DIRS: [&str; 5] = [".obsidian", ".trash", "pesquisa", "exercicios", "codigo"];
 
 pub struct Conceito {
     pub slug: String,

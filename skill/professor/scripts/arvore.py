@@ -30,7 +30,7 @@ INTERVALOS = [1, 3, 7, 16, 35, 80, 180]
 NIVEIS = {0: "não visto", 1: "reconhece", 2: "em construção", 3: "domina", 4: "transfere"}
 LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]")
 COMENTARIO_RE = re.compile(r"<!--.*?-->", re.S)
-IGNORAR_DIRS = {".obsidian", ".trash", "pesquisa", "exercicios"}
+IGNORAR_DIRS = {".obsidian", ".trash", "pesquisa", "exercicios", "codigo"}
 SESSOES, PROGRESSO, RESPOSTAS = "_sessoes.md", "_progresso.md", "_respostas.md"
 IGNORAR_ARQUIVOS = {SESSOES, PROGRESSO, RESPOSTAS}  # gerados; os links deles não contam na árvore
 
@@ -1060,7 +1060,7 @@ OPCOES_SESSAO = """
 # altura_caderno = 40
 
 # Caderno de cada assunto (nome da pasta), no lugar do `caderno` acima. `editor` é o seu
-# $VISUAL/$EDITOR (nvim se não houver).
+# $VISUAL/$EDITOR (nvim se não houver). Se o assunto tem a pasta codigo/, o caderno abre nela.
 # [cadernos]
 # calculo = "node"
 # c = "editor"

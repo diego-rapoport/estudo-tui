@@ -156,6 +156,13 @@ o neovim com outra config, exporte a variável no seu shell (`export VISUAL=hx`)
 precisa ser um programa no `PATH`, e não um alias: o tmux roda o comando com `sh -c`,
 que não lê aliases.
 
+Se o assunto tem a pasta `codigo/`, o caderno abre nela. É onde ficam os programas de um
+assunto de programação: o professor cria a pasta no primeiro exercício de código e lê os
+arquivos de lá para corrigir. Compilar fica com você, pelo terminal do editor (no neovim,
+`:terminal` ou `:!cc -Wall -Wextra -std=c17 -g % -o ola && ./ola`). Sair do editor fecha o
+caderno. Se o seu editor não tem terminal, use `c = "bash"` e abra o editor e o compilador
+pelo shell. Arquivos `.md` dentro de `codigo/` não viram conceitos.
+
 Fora de um tmux, a sessão roda num servidor tmux próprio (`tmux -L estudando`), com mouse,
 rótulos nos painéis e os atalhos acima, sem mexer no seu `~/.tmux.conf`. Se você já está
 num tmux, ela divide a janela atual e usa os seus atalhos (`Ctrl-b` setas; para expandir a
