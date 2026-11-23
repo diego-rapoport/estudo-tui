@@ -1088,6 +1088,8 @@ fn desenhar_pesquisa(f: &mut Frame, app: &mut App, area: Rect) {
 fn desenhar_rodape(f: &mut Frame, app: &App, area: Rect) {
     let linha = if let Some(m) = &app.mensagem {
         Line::from(Span::styled(format!(" {m}"), Style::new().fg(Color::Yellow)))
+    } else if let Some(e) = &app.erro_config {
+        Line::from(Span::styled(format!(" {e}"), negrito(Color::Red)))
     } else {
         let dicas: &[(&str, &str)] = if app.lista_aberta() {
             &[("j/k", "rolar"), ("d", "dicas"), ("g", "gabarito"), ("o", "responder no editor"), ("Esc", "voltar")]

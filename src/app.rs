@@ -103,6 +103,8 @@ pub struct App {
     pub sem_paineis: Option<String>,
     /// Pediu um painel fora do tmux: ao sair, a TUI reabre numa sessão com ele.
     pub mudar_para_sessao: Option<Papel>,
+    /// Erro no config que fica no rodapé até ser corrigido (ver `checar_config`).
+    pub erro_config: Option<String>,
     assinatura: u64,
     sair: bool,
 }
@@ -132,10 +134,19 @@ impl App {
             paineis,
             sem_paineis: None,
             mudar_para_sessao: None,
+            erro_config: None,
             sair: false,
         };
         app.selecionar_fronteira();
+        app.checar_config();
         app
+    }
+
+    /// Confere o config contra os assuntos que existem. Roda ao abrir, ao recarregar e ao
+    /// pedir um painel, então o erro some assim que o config é corrigido.
+    fn checar_config(&mut self) {
+        let nomes: Vec<&str> = self.assuntos.iter().map(|a| a.nome.as_str()).collect();
+        self.erro_config = config::erro_com_assuntos(&nomes);
     }
 
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
@@ -183,6 +194,7 @@ impl App {
         }
         self.idx = self.assuntos.iter().position(|a| a.nome == atual).unwrap_or(0);
         self.limitar_selecoes();
+        self.checar_config();
     }
 
     fn tamanho(&self, aba: Aba) -> usize {
@@ -359,6 +371,7 @@ impl App {
     }
 
     fn painel(&mut self, papel: Papel) {
+        self.checar_config();
         let Some(paineis) = &self.paineis else {
             self.sem_paineis(papel);
             return;

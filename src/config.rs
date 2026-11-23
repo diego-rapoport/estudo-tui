@@ -83,19 +83,50 @@ fn cabecalho(linha: &str) -> Option<&str> {
     l.strip_prefix('[')?.split_once(']').map(|(t, _)| t.trim())
 }
 
-/// Valor de `chave = ...` dentro da `tabela` (`""` é o topo, antes do primeiro cabeçalho);
-/// ignora comentários, outras chaves e outras tabelas. A chave pode vir entre aspas.
-fn valor_em(texto: &str, tabela: &str, chave: &str) -> Option<String> {
+/// (tabela, chave, valor bruto) de cada `chave = valor` do texto, na ordem; a tabela do topo
+/// (antes do primeiro cabeçalho) é `""`. Pula comentários; a chave pode vir entre aspas.
+fn pares(texto: &str) -> impl Iterator<Item = (&str, &str, &str)> {
     let mut atual = "";
-    texto.lines().find_map(|linha| {
+    texto.lines().filter_map(move |linha| {
         if let Some(t) = cabecalho(linha) {
             atual = t;
             return None;
         }
+        if linha.trim_start().starts_with('#') {
+            return None;
+        }
         let (k, valor) = linha.split_once('=')?;
         let k = k.trim();
-        let k = k.strip_prefix('"').and_then(|k| k.strip_suffix('"')).unwrap_or(k);
-        (atual == tabela && k == chave).then(|| valor_toml(valor)).flatten()
+        Some((atual, k.strip_prefix('"').and_then(|k| k.strip_suffix('"')).unwrap_or(k), valor))
+    })
+}
+
+/// Valor de `chave = ...` dentro da `tabela` (`""` é o topo).
+fn valor_em(texto: &str, tabela: &str, chave: &str) -> Option<String> {
+    pares(texto).find_map(|(t, k, valor)| (t == tabela && k == chave).then(|| valor_toml(valor)).flatten())
+}
+
+/// Erro de config: chaves de `[cadernos]` que não são o nome da pasta de nenhum assunto (o
+/// caderno desse assunto cairia no `caderno` geral sem aviso). Sugere o único assunto que tem
+/// a chave como palavra do nome (`c` → `programacao-c`, e não `calculo`) ou, sem esse, o único
+/// que a contém.
+fn erro_cadernos(texto: &str, assuntos: &[&str]) -> Option<String> {
+    let unico = |filtro: &dyn Fn(&str) -> bool| match assuntos.iter().filter(|a| filtro(a)).collect::<Vec<_>>()[..] {
+        [a] => Some(*a),
+        _ => None,
+    };
+    let erros: Vec<String> = pares(texto)
+        .filter(|&(t, k, _)| t == "cadernos" && !assuntos.contains(&k))
+        .map(|(_, k, _)| {
+            let parecido = unico(&|a| a.split(['-', '_']).any(|p| p == k)).or_else(|| unico(&|a| a.contains(k)));
+            match parecido {
+                Some(a) => format!("[cadernos].{k} não é um assunto (seria {a}?)"),
+                None => format!("[cadernos].{k} não é um assunto"),
+            }
+        })
+        .collect();
+    (!erros.is_empty()).then(|| {
+        format!("erro no config: {}; assuntos são nomes de pasta: {}", erros.join("; "), assuntos.join(", "))
     })
 }
 
@@ -119,6 +150,11 @@ pub fn chave(nome: &str) -> Option<String> {
 /// Uma chave dentro de uma tabela do config (`[cadernos]`...).
 pub fn chave_em(tabela: &str, nome: &str) -> Option<String> {
     valor_em(&fs::read_to_string(arquivo_config()).ok()?, tabela, nome)
+}
+
+/// Erro de config sobre os assuntos que existem (`[cadernos]` com assunto que não existe).
+pub fn erro_com_assuntos(assuntos: &[&str]) -> Option<String> {
+    erro_cadernos(&fs::read_to_string(arquivo_config()).ok()?, assuntos)
 }
 
 /// O editor de texto do usuário: `$VISUAL`, senão `$EDITOR`, senão `nvim`. Pode ter
@@ -228,12 +264,12 @@ const OPCOES_SESSAO: &str = "
 # $VISUAL/$EDITOR (nvim se não houver). Se o assunto tem a pasta codigo/, o caderno abre nela.
 # [cadernos]
 # calculo = \"node\"
-# c = \"editor\"
+# programacao-c = \"editor\"
 ";
 
 #[cfg(test)]
 mod testes {
-    use super::{com_pasta, string_toml, valor_da_chave, valor_em, valor_toml};
+    use super::{com_pasta, erro_cadernos, string_toml, valor_da_chave, valor_em, valor_toml};
 
     #[test]
     fn valor_toml_respeita_aspas_e_comentarios() {
@@ -279,5 +315,21 @@ mod testes {
         assert_eq!(valor_em(texto, "cadernos", "c").as_deref(), Some("editor ola.c"));
         assert_eq!(valor_em(texto, "cadernos", "fisica"), None);
         assert_eq!(valor_em(texto, "outra", "calculo"), None);
+    }
+
+    #[test]
+    fn cadernos_de_assunto_que_nao_existe_sao_erro() {
+        let assuntos = ["calculo", "programacao-c"];
+        let ok = "caderno = \"node\"\n[cadernos]\ncalculo = \"node\"\n# c = \"editor\"\nprogramacao-c = \"editor\"\n";
+        assert_eq!(erro_cadernos(ok, &assuntos), None);
+        assert_eq!(erro_cadernos("c = \"x\"\n", &assuntos), None, "fora de [cadernos] não conta");
+
+        let errado = "[cadernos]\nc = \"editor\"\nfisica = \"python3\"\n";
+        let erro = erro_cadernos(errado, &assuntos).unwrap();
+        assert!(erro.contains("[cadernos].c não é um assunto (seria programacao-c?)"), "{erro}");
+        assert!(erro.contains("[cadernos].fisica não é um assunto;"), "{erro}");
+        assert!(erro.ends_with("calculo, programacao-c"), "{erro}");
+        let sem_palavra = erro_cadernos("[cadernos]\ncalc = \"node\"\n", &assuntos).unwrap();
+        assert!(sem_palavra.contains("(seria calculo?)"), "{sem_palavra}");
     }
 }

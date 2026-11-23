@@ -142,13 +142,18 @@ altura_caderno = 40
 
 [cadernos]             # um caderno por assunto (nome da pasta); vale mais que `caderno`
 calculo = "node"
-c = "editor"
+programacao-c = "editor"
 ```
 
 O caderno é escolhido nesta ordem: `--caderno`, depois `[cadernos]` do assunto, depois
 `caderno`, e por fim `python3`. Assim, `estudando -s calculo` abre o node e
-`estudando -s c` abre o editor. Ao trocar de assunto na TUI, o caderno que já está aberto
-continua o mesmo. Feche-o e aperte `c` para abrir o do assunto novo.
+`estudando -s programacao-c` abre o editor. Ao trocar de assunto na TUI, o caderno que já
+está aberto continua o mesmo. Feche-o e aperte `c` para abrir o do assunto novo.
+
+As chaves de `[cadernos]` são o nome exato da pasta do assunto (`programacao-c`, e não
+`c`). Uma chave que não corresponde a nenhum assunto é erro de config: a TUI mostra o erro
+em vermelho no rodapé, sugerindo o assunto parecido, até o config ser corrigido. Ela confere
+de novo ao abrir um painel (`i`, `c`, `p`) e ao recarregar (`r`).
 
 A palavra `editor` no começo do comando vira o editor de quem está usando: `$VISUAL`,
 senão `$EDITOR`, senão `nvim`. É a mesma regra da tecla `o`. Para usar outro editor, ou

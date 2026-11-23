@@ -1063,7 +1063,7 @@ OPCOES_SESSAO = """
 # $VISUAL/$EDITOR (nvim se não houver). Se o assunto tem a pasta codigo/, o caderno abre nela.
 # [cadernos]
 # calculo = "node"
-# c = "editor"
+# programacao-c = "editor"
 """
 
 
