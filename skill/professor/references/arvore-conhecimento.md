@@ -30,6 +30,7 @@ criado: 2026-10-29
 
 ## Em minhas palavras
 <!-- Escreva você, como se explicasse para um colega que nunca ouviu falar. -->
+<!-- Guia: 1) Que pergunta do dia a dia isso responde? 2) Um exemplo com números e unidades. 3) Onde dá para errar? -->
 
 ## Exemplo que eu entendo
 <!-- Um exemplo concreto, de preferência inventado por você. -->
@@ -89,6 +90,12 @@ as opções que foram oferecidas, para ele poder mudar.
 
 ## Disponibilidade
 Horas por semana; preferências (sessões curtas, gosta de exemplos visuais...).
+
+## Contextos familiares
+<!-- Só o que o aluno confirmou conhecer; as analogias saem daqui. Acrescente os contextos
+novos que ele trouxer. Registre também o que NÃO usar. -->
+- barra de download, ...
+- **Não usar:** ...
 
 ## Como este aluno aprende
 <!-- O modelo do aluno: atualize no fim de cada sessão pela evidência. No máximo 10 linhas. -->
